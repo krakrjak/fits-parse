@@ -1,0 +1,20 @@
+name:                fits-parse
+version:             0.0.1
+#synopsis:
+#description:
+homepage:            https://github.com/krakrjak/fits-parse#readme
+license:             BSD2
+author:              Zac Slade
+maintainer:          krakrjak@gmail.com
+copyright:           Copyright (c) 2018 Zac Slade
+category:            Web
+extra-source-files:
+- README.md
+
+dependencies:
+  - base >= 4.7 && < 5
+
+executables:
+  fits-parse:
+    source-dirs:      src
+    main:             Main.hs
