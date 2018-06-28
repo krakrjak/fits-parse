@@ -2,10 +2,15 @@ module Main where
 
 import Data.Monoid( (<>) )
 import Control.Applicative( (<|>), (<**>) )
+import System.IO ( stdin )
+
 import Options.Applicative( Parser, strOption, optional, short, long
                           , flag', metavar, help, execParser, info
                           , fullDesc, header, helper, progDesc
                           , argument, str )
+
+import qualified Data.ByteString as BS
+
 
 data Input = FileInput FilePath | StdInput
     deriving (Show)
@@ -57,4 +62,8 @@ main = workOnFITS =<< execParser opts
            <> header "fits-parse - a FITS swiss army knife" )
 
 workOnFITS :: FitsConfig -> IO ()
-workOnFITS f = return ()
+workOnFITS (FitsConfig i o) = do
+    bs i >>= putStrLn . show . BS.length
+  where
+    bs (FileInput f) = BS.readFile f
+    bs StdInput = BS.hGetContents stdin
