@@ -18,7 +18,13 @@ dependencies:
   - megaparsec
   - liquidhaskell
 
-executables:
+library:
   fits-parse:
-    source-dirs:      src
+      source-dirs: src
+
+executables:
+  fits-render:
+    source-dirs:      app
     main:             Main.hs
+    dependencies:
+        - fits-parse
