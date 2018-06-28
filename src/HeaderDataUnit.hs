@@ -13,6 +13,24 @@ module HeaderDataUnit where
 
 import Data.Text (Text)
 
+type Bytes = Int
+type Count = Int
+
+{-@ type HDURecordLength = {v:Int | v = 80} @-}
+{-@ hduRecordLength :: HDURecordLength @-}
+hduRecordLength :: Bytes
+hduRecordLength = 80
+
+{-@ type HDUMaxRecords = {v:Int | v = 36} @-}
+{-@ hduMaxRecords :: HDUMaxRecords @-}
+hduMaxRecords :: Count
+hduMaxRecords = 36
+
+{-@ type HDUBlockSize = {v:Int | v = 2880} @-}
+{-@ hduBlockSize :: HDUBlockSize @-}
+hduBlockSize :: Bytes
+hduBlockSize = hduRecordLength * hduMaxRecords
+
 data StringType = NullString | EmptyString | DataString | UndefinedString
 
 data StringValue = StringValue

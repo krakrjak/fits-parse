@@ -1,3 +1,10 @@
-resolver: lts-11.6
+resolver: lts-11.13
 packages:
     - .
+
+extra-deps:
+    - liquidhaskell-0.8.2.4
+    - liquid-fixpoint-0.7.0.7
+    - dotgen-0.4.2
+    - fgl-visualize-0.1.0.1
+    - located-base-0.1.1.1
