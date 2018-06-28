@@ -19,8 +19,7 @@ dependencies:
   - liquidhaskell
 
 library:
-  fits-parse:
-      source-dirs: src
+  source-dirs: src
 
 executables:
   fits-render:
@@ -28,3 +27,5 @@ executables:
     main:             Main.hs
     dependencies:
         - fits-parse
+        - optparse-applicative
+        - JuicyPixels
