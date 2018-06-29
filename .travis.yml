@@ -1,18 +1,19 @@
 # We are going to depend on stack for ghc and cabal. There is no need to
 # set the language to haskell, stack will get the compiler we need and we'll
 # cache it.
-language: C
+language: generic
 sudo: false
 
 before_install:
-  - if [ ! -e ~/.local/bin/stack ]; then
+  - if [ ! -x ~/.local/bin/stack ]; then
         mkdir -p ~/.local/bin;
         travis_retry curl -L https://www.stackage.org/stack/linux-x86_64
             | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack';
     fi
   - export PATH=$HOME/.local/bin:$PATH
-  - stack --no-terminal setup
   - stack --version
+  - stack --no-terminal setup
+  - stack exec -- ghc --version
 
 install:
   - stack --no-terminal build --haddock --only-dependencies
@@ -39,8 +40,9 @@ branches:
 
 cache:
   directories:
-    - $HOME/.stack
-    - $HOME/.local
+    - $HOME/.stack/
+    - $HOME/.local/
+    - .stack-work/
 
 deploy:
   provider: pages
