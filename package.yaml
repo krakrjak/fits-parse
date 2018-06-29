@@ -29,3 +29,4 @@ executables:
         - fits-parse
         - optparse-applicative
         - JuicyPixels
+        - fast-logger

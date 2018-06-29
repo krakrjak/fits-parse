@@ -11,6 +11,9 @@ import Options.Applicative( Parser, strOption, optional, short, long
 
 import qualified Data.ByteString as BS
 
+import System.Log.FastLogger( TimedFastLogger, ToLogStr, LogType( LogStderr )
+                            , defaultBufSize, newTimeCache, simpleTimeFormat
+                            , toLogStr, newTimedFastLogger )
 
 
 -- | Paramaterized input type for files or standard input.
@@ -66,7 +69,15 @@ main = workOnFITS =<< execParser opts
 
 workOnFITS :: FitsConfig -> IO ()
 workOnFITS (FitsConfig i o) = do
-    bs i >>= putStrLn . show . BS.length
+    timeCache <- newTimeCache simpleTimeFormat
+    (logger, cleanUp) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
+    fits <- bs i
+    myLog logger $ "[DEBUG] input file size in bytes " ++ (show $ BS.length fits)
+    putStrLn "Read the input file successfully"
+    cleanUp
   where
     bs (FileInput f) = BS.readFile f
     bs StdInput = BS.hGetContents stdin
+
+myLog:: ToLogStr msg => TimedFastLogger -> msg -> IO ()
+myLog logger msg = logger $ \ft -> toLogStr ft <> toLogStr ": " <> toLogStr msg
