@@ -1,4 +1,7 @@
-language: haskell
+# We are going to depend on stack for ghc and cabal. There is no need to
+# set the language to haskell, stack will get the compiler we need and we'll
+# cache it.
+language: C
 sudo: false
 
 before_install:
@@ -12,16 +15,23 @@ before_install:
   - stack --version
 
 install:
-  - stack --no-terminal build --only-dependencies
+  - stack --no-terminal build --haddock --only-dependencies
 
 script:
-  - stack --no-terminal build
+  - stack --no-terminal build --haddock
   - stack --no-terminal exec -- liquid src/HeaderDataUnit.hs
+  - mv "$(stack --no-terminal path | grep dist-dir | cut -d' ' -f2)"/doc/html/fits-parse .stack-work/dist/haddocks
 
 matrix:
   fast_finish: true
   include:
-    - env: ""
+    - env: STACK_GHC=YES
+      addons:
+        apt:
+          sources:
+            - sourceline: 'ppa:hvr/z3'
+          packages:
+            - z3
 
 branches:
   only:
@@ -32,5 +42,11 @@ cache:
     - $HOME/.stack
     - $HOME/.local
 
-git:
-  submodules: false
+deploy:
+  provider: pages
+  skip-cleanup: true
+  github-token: $GITHUB_PAGES_TOKEN
+  keep-history: true
+  local-dir: .stack-work/dist/haddocks
+  on:
+    branch: testing
