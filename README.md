@@ -7,3 +7,7 @@ This project focuses on building a Haskell native parser for FITS files. This fi
 # Documentation Building
 
 To build the docs you need `sphinx`. To install it locally to a single user use `pip` with the `--user` option to install `sphinx` and `sphinx-rtd-theme`. Alternatively, on Ubuntu you can install the `python3-sphinx` and `python3-sphinx-rtd-theme` package.
+
+# Reading Documentation
+
+There are two sites with pointers on using this code. The [readthedocs](https://fits-parse.rtfd.io) pages should guide you on installation and usage of the `fits-render` program. The [Haddock](https://krakrjak.github.io/fits-parse/index.html) docs are an API reference, which you can build locally with `stack build --haddock` for offline viewing.
