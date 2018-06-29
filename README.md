@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.com/krakrjak/fits-parse.svg?branch=master)](https://travis-ci.com/krakrjak/fits-parse)
+[![Documentation Status](https://readthedocs.org/projects/fits-parse/badge/?version=latest)](https://fits-parse.readthedocs.io/en/latest/?badge=latest)
 
 # fits-parse
 

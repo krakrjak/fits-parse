@@ -5,6 +5,9 @@
 
 .. image:: https://travis-ci.com/krakrjak/fits-parse.svg?branch=master
     :target: https://travis-ci.com/krakrjak/fits-parse
+.. image:: https://readthedocs.org/projects/fits-parse/badge/?version=latest
+    :target: https://fits-parse.readthedocs.io/en/latest/?badge=latest
+    :alt: Documentation Status
 
 Welcome to fits-parse's documentation!
 ======================================
