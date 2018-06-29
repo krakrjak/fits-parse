@@ -35,7 +35,7 @@ matrix:
 
 branches:
   only:
-    - testing
+    - master
 
 cache:
   directories:
@@ -49,4 +49,4 @@ deploy:
   keep-history: true
   local-dir: .stack-work/dist/haddocks
   on:
-    branch: testing
+    branch: master
