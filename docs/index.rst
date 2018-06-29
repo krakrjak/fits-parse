@@ -10,7 +10,7 @@ Welcome to fits-parse's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-`Haddock Docs`<https://krakrjak.github.io/fits-parse/index.html>` are the API docs for the project.
+`Haddock Docs <https://krakrjak.github.io/fits-parse/index.html>`_ are the API docs for the project.
 
 
 Indices and tables
