@@ -1,0 +1,36 @@
+language: haskell
+sudo: false
+
+before_install:
+  - if [ ! -e ~/.local/bin/stack ]; then
+        mkdir -p ~/.local/bin;
+        travis_retry curl -L https://www.stackage.org/stack/linux-x86_64
+            | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack';
+    fi
+  - export PATH=$HOME/.local/bin:$PATH
+  - stack --no-terminal setup
+  - stack --version
+
+install:
+  - stack --no-terminal build --only-dependencies
+
+script:
+  - stack --no-terminal build
+  - stack --no-terminal exec -- liquid src/HeaderDataUnit.hs
+
+matrix:
+  fast_finish: true
+  include:
+    - env: ""
+
+branches:
+  only:
+    - testing
+
+cache:
+  directories:
+    - $HOME/.stack
+    - $HOME/.local
+
+git:
+  submodules: false
