@@ -12,10 +12,14 @@ import Options.Applicative( Parser, strOption, optional, short, long
 import qualified Data.ByteString as BS
 
 
-data Input = FileInput FilePath | StdInput
-    deriving (Show)
-data Output = FileOutput FilePath | StdOutput
-    deriving (Show)
+
+-- | Paramaterized input type for files or standard input.
+data Input = FileInput FilePath -- ^ The 'FileInput' constructor needs a path name
+           | StdInput           -- ^ The `StdInput` constructor stands in for the obvious
+
+-- | Parameterized output type for files or standard output.
+data Output = FileOutput FilePath -- ^ When you have a file use 'FileOutput'
+            | StdOutput           -- ^ For a screen dump use 'StdOutput'
 
 fileInput :: Parser Input
 fileInput = FileInput <$> argument str
@@ -48,7 +52,6 @@ data FitsConfig = FitsConfig
     { infile :: Input
     , outImage :: Maybe Output
     }
-    deriving (Show)
 
 fitsConfigParser :: Parser FitsConfig
 fitsConfigParser = FitsConfig <$> inputParse <*> optional outputParse
