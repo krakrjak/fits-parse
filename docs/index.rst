@@ -3,6 +3,9 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
+.. image:: https://travis-ci.com/krakrjak/fits-parse.svg?branch=master
+    :target: https://travis-ci.com/krakrjak/fits-parse
+
 Welcome to fits-parse's documentation!
 ======================================
 
