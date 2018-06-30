@@ -20,6 +20,8 @@ dependencies:
 
 library:
   source-dirs: src
+  dependencies:
+      - data-default
 
 executables:
   fits-render:
