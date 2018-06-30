@@ -21,7 +21,7 @@ install:
 script:
   - stack --no-terminal build --haddock
   - stack --no-terminal exec -- liquid src/HeaderDataUnit.hs
-  - mv "$(stack --no-terminal path | grep dist-dir | cut -d' ' -f2)"/doc/html/fits-parse .stack-work/dist/haddocks
+  - mv "$(stack --no-terminal path | grep dist-dir | cut -d' ' -f2)"/doc/html/fits-parse .haddocks
 
 matrix:
   fast_finish: true
@@ -49,6 +49,6 @@ deploy:
   skip-cleanup: true
   github-token: $GITHUB_PAGES_TOKEN
   keep-history: true
-  local-dir: .stack-work/dist/haddocks
+  local-dir: .haddocks/
   on:
     branch: master
