@@ -8,83 +8,52 @@
 
 -- | Definitions for the data types needed to parse an HDU in a FITS block.
 module HeaderDataUnit
-type Bytes = Int
-type Count = Int
-hduRecordLength :: Bytes
-hduMaxRecords :: Count
-hduBlockSize :: Bytes
-data StringType
-NullString :: StringType
-EmptyString :: StringType
-DataString :: StringType
-UndefinedString :: StringType
-data StringValue
-StringValue :: StringType -> Maybe Text -> StringValue
-[stringType] :: StringValue -> StringType
-[stringValue] :: StringValue -> Maybe Text
-data NumberType
 
--- | HDU ASCII encoded integer number
-IntegerType :: NumberType
+-- | The <a>HeaderDataUnit</a> is the full HDU. Both the header information
+--   is encoded alongside the <a>Axis</a> payload.
+data HeaderDataUnit
+HeaderDataUnit :: HeaderData -> ByteString -> HeaderDataUnit
 
--- | HDU ASCII encoded real number
-RealType :: NumberType
+-- | Just the header part of the HDU
+[headerData] :: HeaderDataUnit -> HeaderData
 
--- | HDU ASCII encoded complex number
-ComplexType :: NumberType
-data NumberModifier
+-- | The actual data payload
+[payloadData] :: HeaderDataUnit -> ByteString
 
--- | HDU positive number value
-Positive :: NumberModifier
+-- | The header part of the HDU is vital carrying not only authorship
+--   metadata, but also specifying how to make sense of the binary payload
+--   that starts 2,880 bytes after the start of the <a>HeaderData</a>.
+data HeaderData
+HeaderData :: SimpleFormat -> BitPixFormat -> NAxisMetadata -> [Axis] -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> HeaderData
+[simpleFormat] :: HeaderData -> SimpleFormat
+[bitPixFormat] :: HeaderData -> BitPixFormat
+[nAxisMetaData] :: HeaderData -> NAxisMetadata
+[axes] :: HeaderData -> [Axis]
+[objectIdentifier] :: HeaderData -> StringValue
+[observationDate] :: HeaderData -> StringValue
+[originIdentifier] :: HeaderData -> StringValue
+[telescopeIdentifier] :: HeaderData -> StringValue
+[instrumentIdentifier] :: HeaderData -> StringValue
+[observerIdentifier] :: HeaderData -> StringValue
+[authorIdentifier] :: HeaderData -> StringValue
+[referenceString] :: HeaderData -> StringValue
 
--- | HDU negative number value
-Negative :: NumberModifier
-
--- | HDU numeric value is zero, could be positive or negative
-Zero :: NumberModifier
-
--- | <a>NumberValue</a> contains an encoded numeric record from a data
---   field. This data type still needs to be converted into more useful
---   Haskell data types.
-data NumberValue
-NumberValue :: NumberType -> NumberModifier -> Text -> Maybe NumberModifier -> Maybe Text -> Maybe NumberModifier -> Maybe Int -> NumberValue
-[numberType] :: NumberValue -> NumberType
-[realModifier] :: NumberValue -> NumberModifier
-[realPart] :: NumberValue -> Text
-[imaginaryModifier] :: NumberValue -> Maybe NumberModifier
-[imaginaryPart] :: NumberValue -> Maybe Text
-[exponentModifier] :: NumberValue -> Maybe NumberModifier
-[exponent] :: NumberValue -> Maybe Int
+-- | The standard defines two possible values for the SIMPLE keyword, T and
+--   F. The T refers to a <a>Conformant</a> format while F refers to a
+--   <a>NonConformant</a> format. At this time only the <a>Conformant</a>,
+--   T, format is supported.
 data SimpleFormat
 
--- | Value of SIMPLE is T in the header
+-- | Value of SIMPLE=T in the header. <i>supported</i>
 Conformant :: SimpleFormat
 
--- | Value of SIMPLE is F in the header
+-- | Value of SIMPLE=F in the header. <i>unsupported</i>
 NonConformant :: SimpleFormat
-data NAxisType
 
--- | No data follows the header
-ZeroAxes :: NAxisType
-
--- | There is one or more axes in the data following the header
-ManyAxes :: NAxisType
-data NAxisMetadata
-NAxisMetadata :: NAxisType -> Int -> NAxisMetadata
-
--- | Are there zero or more axes of data?
-[naxisType] :: NAxisMetadata -> NAxisType
-
--- | How many axes are there in the dataset?
-[axesCount] :: NAxisMetadata -> Int
-data Axis
-Axis :: Int -> Int -> Axis
-
--- | The axis number under consideration
-[axisNumber] :: Axis -> Int
-
--- | The number of elements in this axis
-[axisElementCount] :: Axis -> Int
+-- | The <a>BitPixFormat</a> is the nitty gritty of how the <a>Axis</a>
+--   data is layed out in the file. The standard recognizes six formats:
+--   unsigned 8 bit integer, two's complement binary integers at 16, 32,
+--   and 64 bits along with 32 and 64 bit IEEE floating point formats.
 data BitPixFormat
 
 -- | BITPIX = 8; unsigned binary integer of 8 bits
@@ -104,6 +73,127 @@ ThirtyTwoBitFloat :: BitPixFormat
 
 -- | BITPIX = -64; IEEE double precision floating point of 64 bits
 SixtyFourBitFloat :: BitPixFormat
+
+-- | There are many types of strings defined in the FITS documentation.
+--   Refered to as "character string(s)" in the documentation, they can be
+--   null, empty, undefined, or contain characters (printable ASCII only).
+data StringType
+
+-- | The NULL character string (e.g. AUTHOR=)
+NullString :: StringType
+
+-- | An empty string (e.g. AUTHOR="")
+EmptyString :: StringType
+
+-- | Plain ASCII data
+DataString :: StringType
+
+-- | (e.g. AUTHOR is not in the header)
+UndefinedString :: StringType
+
+-- | A <a>StringValue</a> is a type paired with a possible value.
+data StringValue
+StringValue :: StringType -> Maybe Text -> StringValue
+
+-- | Which <a>StringType</a> is this value?
+[stringType] :: StringValue -> StringType
+
+-- | The payload of a character string
+[stringValue] :: StringValue -> Maybe Text
+
+-- | The FITS standard allows for the encoding of unsigned integers, signed
+--   integers, real numbers, and complex numbers. They are always ASCII
+--   encoded. See 5.2 of the standard for more details.
+data NumberType
+
+-- | HDU ASCII encoded integer number
+IntegerType :: NumberType
+
+-- | HDU ASCII encoded real number
+RealType :: NumberType
+
+-- | HDU ASCII encoded complex number
+ComplexType :: NumberType
+
+-- | Utility data type to help with the ASCII representation of numbers
+data NumberModifier
+
+-- | HDU positive number value
+Positive :: NumberModifier
+
+-- | HDU negative number value
+Negative :: NumberModifier
+
+-- | HDU numeric value is zero, could be positive or negative
+Zero :: NumberModifier
+
+-- | <a>NumberValue</a> contains an encoded numeric record from a data
+--   field. This data type still needs to be converted into more useful
+--   Haskell data types.
+data NumberValue
+NumberValue :: NumberType -> NumberModifier -> Text -> Maybe NumberModifier -> Maybe Text -> Maybe NumberModifier -> Maybe Int -> NumberValue
+
+-- | Key to decoding the structure
+[numberType] :: NumberValue -> NumberType
+
+-- | Encoding the sign of the real part
+[realModifier] :: NumberValue -> NumberModifier
+
+-- | All <a>NumberType</a> have a real part (sign stripped)
+[realPart] :: NumberValue -> Text
+
+-- | Encoding the sign of the imaginary part
+[imaginaryModifier] :: NumberValue -> Maybe NumberModifier
+
+-- | Only <a>ComplexType</a> have an imaginary part (sign stripped)
+[imaginaryPart] :: NumberValue -> Maybe Text
+
+-- | <a>Positive</a>, <a>Negative</a>, or <a>Zero</a>
+[exponentModifier] :: NumberValue -> Maybe NumberModifier
+
+-- | All <a>NumberType</a> may have an exponent
+[exponent] :: NumberValue -> Maybe Int
+
+-- | If we have <a>ManyAxes</a>, how many do we have. That's the question
+--   <a>NAxisMetadata</a> is here to answer. The <a>axesCount</a> record
+--   corresponds with how many NAXISN records there are in the header. If
+--   <a>axesCount</a> is three then the header will contain 3 NAXISN
+--   records, NAXIS1, NAXIS2, and NAXIS3.
+data NAxisMetadata
+NAxisMetadata :: NAxisType -> Int -> NAxisMetadata
+
+-- | Are there zero or more axes of data?
+[naxisType] :: NAxisMetadata -> NAxisType
+
+-- | How many axes are there in the dataset?
+[axesCount] :: NAxisMetadata -> Int
+
+-- | <a>Axis</a> represents a single NAXIS record.
+data Axis
+Axis :: Int -> Int -> Axis
+
+-- | The axis number under consideration
+[axisNumber] :: Axis -> Int
+
+-- | The number of elements in this axis
+[axisElementCount] :: Axis -> Int
+
+-- | A single record in the HDU is an eighty byte word.
+hduRecordLength :: Int
+
+-- | The maximum amount of eighty byte records is thirty-six per the
+--   standard.
+hduMaxRecords :: Int
+
+-- | The size of an HDU block is fixed at thirty-six eighty byte words. In
+--   other words 2,880 bytes. These blocks are padded with zeros to this
+--   boundary.
+hduBlockSize :: Int
+instance Data.Default.Class.Default HeaderDataUnit.HeaderData
+instance Data.Default.Class.Default HeaderDataUnit.Axis
+instance Data.Default.Class.Default HeaderDataUnit.NAxisMetadata
+instance Data.Default.Class.Default HeaderDataUnit.NumberValue
+instance Data.Default.Class.Default HeaderDataUnit.StringValue
 
 
 -- | Parsing rules for an HDU in a FITS file.
