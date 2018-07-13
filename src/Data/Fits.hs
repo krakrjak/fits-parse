@@ -1,5 +1,5 @@
 {-|
-Module      : HeaderDataUnit
+Module      : Data.Fits
 Description : Types for FITS Data Units
 Copyright   : (c) Zac Slade, 2018
 License     : BSD2

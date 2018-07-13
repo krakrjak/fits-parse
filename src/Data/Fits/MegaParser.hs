@@ -1,5 +1,5 @@
 {-|
-Module      : MegaParser
+Module      : Data.Fits.MegaParser
 Description : MegaParsec based parser for an HDU.
 Copyright   : (c) Zac Slade, 2018
 License     : BSD2
@@ -9,21 +9,26 @@ Stability   : experimental
 Parsing rules for an HDU in a FITS file.
 -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Data.Fits.MegaParser where
 
 -- qualified imports
 import qualified Data.ByteString as BS
-import qualified Text.Megaparsec.Byte.Lexer as L
+import qualified Data.ByteString.Internal as BS ( c2w )
+import qualified Text.Megaparsec as M
+import qualified Text.Megaparsec.Byte as M
 
 -- explicit imports
 import Numeric.Natural ( Natural )
 import Data.ByteString ( ByteString )
 import Data.Word ( Word8, Word16, Word32, Word64 )
 import Data.Void ( Void )
+import Data.Default ( def )
 import Text.Ascii ( isAscii )
 
 -- full module imports
-import Text.Megaparsec
+import Text.Megaparsec ( Parsec, ParseError, (<|>))
 
 -- local imports
 import Data.Fits
@@ -45,7 +50,18 @@ data DataUnitValues
   | FITSFloat64 Double
 
 headerBlockParse :: Parser HeaderData
-headerBlockParse = undefined
+headerBlockParse = do
+    simple <- parseSimple
+    return defHeader { simpleFormat = simple }
+  where
+    defHeader = def :: HeaderData
+
+parseSimple :: Parser SimpleFormat
+parseSimple = M.string' "simple" >> M.space >> M.char (BS.c2w '=') >> M.space >>
+    ((conformParse >> return Conformant) <|> (nonConformParse >> return NonConformant))
+  where
+    conformParse = M.string' "t"
+    nonConformParse = M.anyChar
 
 countHeaderDataUnits :: ByteString -> IO Natural
 countHeaderDataUnits bs = getAllHDUs bs >>= return . fromIntegral . length
@@ -62,12 +78,11 @@ getOneHDU bs =
     case isAscii header of
       False -> error "Header data is not ASCII. Please Check your input file and try again"
       True  -> do
-        case runParser headerBlockParse "FITS" header of
+        case M.runParser headerBlockParse "FITS" header of
           Right mainHeader -> do
             let (dataUnit, remainder) = BS.splitAt (fromIntegral $ dataSize mainHeader) rest
             return (HeaderDataUnit mainHeader dataUnit, remainder)
-          Left e -> let err = parseErrorPretty e in error err
-
+          Left e -> let err = M.parseErrorPretty e in error err
   where
     (header, rest) = BS.splitAt hduBlockSize bs
 
