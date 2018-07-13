@@ -217,6 +217,11 @@ FITSFloat32 :: Float -> DataUnitValues
 FITSFloat64 :: Double -> DataUnitValues
 headerBlockParse :: Parser HeaderData
 parseSimple :: Parser SimpleFormat
+parseEquals :: Parser ()
+parseBitPix :: Parser BitPixFormat
+skipEmpty :: Parser ()
+consumeDead :: Parser ()
+parseEnd :: Parser ()
 countHeaderDataUnits :: ByteString -> IO Natural
 getAllHDUs :: ByteString -> IO [HeaderDataUnit]
 getOneHDU :: ByteString -> IO (HeaderDataUnit, ByteString)
