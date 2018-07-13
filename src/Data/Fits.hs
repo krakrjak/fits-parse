@@ -10,7 +10,7 @@ Definitions for the data types needed to parse an HDU in a FITS block.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
-module HeaderDataUnit
+module Data.Fits
     ( -- * Main data types
       HeaderDataUnit(..)
     , HeaderData(..)
@@ -27,11 +27,13 @@ module HeaderDataUnit
     , Axis(..)
 
       -- * Utility
+    , bitPixToWordSize
     , hduRecordLength
     , hduMaxRecords
     , hduBlockSize
     ) where
 
+import Numeric.Natural ( Natural )
 import Data.Text ( Text )
 import Data.ByteString ( ByteString )
 import qualified Data.ByteString as BS
@@ -180,6 +182,17 @@ data BitPixFormat =
     | SixtyFourBitInt   -- ^ BITPIX = 64; two's complement binary integer of 64 bits
     | ThirtyTwoBitFloat -- ^ BITPIX = -32; IEEE single precision floating point of 32 bits
     | SixtyFourBitFloat -- ^ BITPIX = -64; IEEE double precision floating point of 64 bits
+
+{-| This utility function can be used to get the word count for data in an
+    HDU.
+-}
+bitPixToWordSize :: BitPixFormat -> Natural
+bitPixToWordSize EightBitInt       = 8
+bitPixToWordSize SixteenBitInt     = 16
+bitPixToWordSize ThirtyTwoBitInt   = 32
+bitPixToWordSize ThirtyTwoBitFloat = 32
+bitPixToWordSize SixtyFourBitInt   = 64
+bitPixToWordSize SixtyFourBitFloat = 64
 
 {-| The header part of the HDU is vital carrying not only authorship
     metadata, but also specifying how to make sense of the binary payload

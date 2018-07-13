@@ -16,6 +16,9 @@ import System.Log.FastLogger( TimedFastLogger, ToLogStr, LogType( LogStderr )
                             , toLogStr, newTimedFastLogger )
 
 
+-- local library imports
+import Data.Fits.MegaParser ( getAllHDUs )
+
 -- | Paramaterized input type for files or standard input.
 data Input = FileInput FilePath -- ^ The 'FileInput' constructor needs a path name
            | StdInput           -- ^ The `StdInput` constructor stands in for the obvious
@@ -73,7 +76,8 @@ workOnFITS (FitsConfig i o) = do
     (logger, cleanUp) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
     fits <- bs i
     myLog logger $ "[DEBUG] input file size in bytes " ++ (show $ BS.length fits)
-    putStrLn "Read the input file successfully"
+    hdus <- getAllHDUs fits
+
     cleanUp
   where
     bs (FileInput f) = BS.readFile f

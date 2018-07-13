@@ -13,15 +13,16 @@ extra-source-files:
 
 dependencies:
   - base >= 4.7 && < 5
-  - text
   - bytestring
-  - megaparsec
-  - liquidhaskell
 
 library:
   source-dirs: src
   dependencies:
       - data-default
+      - text
+      - megaparsec
+      - liquidhaskell
+      - text-latin1
 
 executables:
   fits-render:
