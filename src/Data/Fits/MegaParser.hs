@@ -52,16 +52,41 @@ data DataUnitValues
 headerBlockParse :: Parser HeaderData
 headerBlockParse = do
     simple <- parseSimple
-    return defHeader { simpleFormat = simple }
+    bitpix <- parseBitPix
+    parseEnd
+    return defHeader { simpleFormat = simple
+                     , bitPixFormat = bitpix }
   where
     defHeader = def :: HeaderData
 
 parseSimple :: Parser SimpleFormat
-parseSimple = M.string' "simple" >> M.space >> M.char (BS.c2w '=') >> M.space >>
-    ((conformParse >> return Conformant) <|> (nonConformParse >> return NonConformant))
+parseSimple = M.string' "simple" >> parseEquals
+    >> ((conformParse >> consumeDead >> return Conformant)
+    <|> (nonConformParse >> consumeDead >> return NonConformant))
   where
     conformParse = M.string' "t"
     nonConformParse = M.anyChar
+
+parseEquals :: Parser ()
+parseEquals = M.space >> M.char (BS.c2w '=') >> M.space
+
+parseBitPix :: Parser BitPixFormat
+parseBitPix = M.string' "bitpix" >> parseEquals
+    >> ((M.string' "8" >> consumeDead >> return EightBitInt)
+    <|> (M.string' "16" >> consumeDead >> return SixteenBitInt)
+    <|> (M.string' "32" >> consumeDead >> return ThirtyTwoBitInt)
+    <|> (M.string' "64" >> consumeDead >> return SixtyFourBitInt)
+    <|> (M.string' "-32" >> consumeDead >> return ThirtyTwoBitFloat)
+    <|> (M.string' "-64" >> consumeDead >> return SixtyFourBitFloat))
+
+skipEmpty :: Parser ()
+skipEmpty = (M.many $ M.satisfy ((0::Word8) ==)) >> return ()
+
+consumeDead :: Parser ()
+consumeDead = M.space >> skipEmpty
+
+parseEnd :: Parser ()
+parseEnd = M.string' "end" >> consumeDead
 
 countHeaderDataUnits :: ByteString -> IO Natural
 countHeaderDataUnits bs = getAllHDUs bs >>= return . fromIntegral . length
