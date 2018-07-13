@@ -16,10 +16,10 @@ import qualified Data.ByteString as BS
 import qualified Text.Megaparsec.Byte.Lexer as L
 
 -- explicit imports
+import Numeric.Natural ( Natural )
 import Data.ByteString ( ByteString )
 import Data.Word ( Word8, Word16, Word32, Word64 )
 import Data.Void ( Void )
-import Numeric.Natural ( Natural )
 import Text.Ascii ( isAscii )
 
 -- full module imports
@@ -32,8 +32,8 @@ type Parser = Parsec Void ByteString
 type ParseErr = ParseError Word8 Void
 
 data HeaderValues
-  = FITSStrKwd StringValue StringValue
-  | FITSNumKwd NumberValue
+  = FITSStrStrKwd StringValue StringValue
+  | FITSStrNumKwd StringValue NumberValue
   | END
 
 data DataUnitValues
@@ -44,8 +44,11 @@ data DataUnitValues
   | FITSFloat32 Float
   | FITSFloat64 Double
 
+headerBlockParse :: Parser HeaderData
+headerBlockParse = undefined
+
 countHeaderDataUnits :: ByteString -> IO Natural
-countHeaderDataUnits bs = undefined -- parseHeader bs <|>
+countHeaderDataUnits bs = getAllHDUs bs >>= return . fromIntegral . length
 
 getAllHDUs :: ByteString -> IO [HeaderDataUnit]
 getAllHDUs bs = do
@@ -59,13 +62,20 @@ getOneHDU bs =
     case isAscii header of
       False -> error "Header data is not ASCII. Please Check your input file and try again"
       True  -> do
-        mainHeader <- runParser headerBlockParse header
-        let (dataUnit, remainder) = BS.splitAt (paddedsize mainHeader) rest
-        return (HeaderDataUnit mainHeader dataUnit, remainder)
+        case runParser headerBlockParse "FITS" header of
+          Right mainHeader -> do
+            let (dataUnit, remainder) = BS.splitAt (fromIntegral $ dataSize mainHeader) rest
+            return (HeaderDataUnit mainHeader dataUnit, remainder)
+          Left e -> let err = parseErrorPretty e in error err
+
   where
     (header, rest) = BS.splitAt hduBlockSize bs
-    wordsize h = bitPixToWordSize $ bitPixFormat h
-    axesCount h = length $ axes h
+
+dataSize :: HeaderData -> Natural
+dataSize h = paddedsize h
+  where
+    wordsize h = fromIntegral . bitPixToWordSize $ bitPixFormat h
+    axesCount h = fromIntegral . length $ axes h
     datasize h = wordsize h * axesCount h
-    padding h = hduBlockSize - (datasize h `mod` hduBlockSize)
-    paddedsize h = datasize h + padding h
+    padding h = if axesCount h == 0 then 0 else fromIntegral hduBlockSize - (datasize h `mod` (fromIntegral hduBlockSize))
+    paddedsize h = fromIntegral (datasize h + padding h)
