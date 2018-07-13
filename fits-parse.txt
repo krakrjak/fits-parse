@@ -7,7 +7,7 @@
 
 
 -- | Definitions for the data types needed to parse an HDU in a FITS block.
-module HeaderDataUnit
+module Data.Fits
 
 -- | The <a>HeaderDataUnit</a> is the full HDU. Both the header information
 --   is encoded alongside the <a>Axis</a> payload.
@@ -178,6 +178,10 @@ Axis :: Int -> Int -> Axis
 -- | The number of elements in this axis
 [axisElementCount] :: Axis -> Int
 
+-- | This utility function can be used to get the word count for data in an
+--   HDU.
+bitPixToWordSize :: BitPixFormat -> Natural
+
 -- | A single record in the HDU is an eighty byte word.
 hduRecordLength :: Int
 
@@ -189,14 +193,31 @@ hduMaxRecords :: Int
 --   other words 2,880 bytes. These blocks are padded with zeros to this
 --   boundary.
 hduBlockSize :: Int
-instance Data.Default.Class.Default HeaderDataUnit.HeaderData
-instance Data.Default.Class.Default HeaderDataUnit.Axis
-instance Data.Default.Class.Default HeaderDataUnit.NAxisMetadata
-instance Data.Default.Class.Default HeaderDataUnit.NumberValue
-instance Data.Default.Class.Default HeaderDataUnit.StringValue
+instance Data.Default.Class.Default Data.Fits.HeaderData
+instance Data.Default.Class.Default Data.Fits.Axis
+instance Data.Default.Class.Default Data.Fits.NAxisMetadata
+instance Data.Default.Class.Default Data.Fits.NumberValue
+instance Data.Default.Class.Default Data.Fits.StringValue
 
 
 -- | Parsing rules for an HDU in a FITS file.
-module MegaParser
+module Data.Fits.MegaParser
 type Parser = Parsec Void ByteString
 type ParseErr = ParseError Word8 Void
+data HeaderValues
+FITSStrStrKwd :: StringValue -> StringValue -> HeaderValues
+FITSStrNumKwd :: StringValue -> NumberValue -> HeaderValues
+END :: HeaderValues
+data DataUnitValues
+FITSUInt8 :: Word8 -> DataUnitValues
+FITSInt16 :: Word16 -> DataUnitValues
+FITSInt32 :: Word32 -> DataUnitValues
+FITSInt64 :: Word64 -> DataUnitValues
+FITSFloat32 :: Float -> DataUnitValues
+FITSFloat64 :: Double -> DataUnitValues
+headerBlockParse :: Parser HeaderData
+parseSimple :: Parser SimpleFormat
+countHeaderDataUnits :: ByteString -> IO Natural
+getAllHDUs :: ByteString -> IO [HeaderDataUnit]
+getOneHDU :: ByteString -> IO (HeaderDataUnit, ByteString)
+dataSize :: HeaderData -> Natural
