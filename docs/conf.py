@@ -124,7 +124,7 @@ latex_elements = {
 
     # The font size ('10pt', '11pt' or '12pt').
     #
-    # 'pointsize': '10pt',
+    'pointsize': '12pt',
 
     # Additional stuff for the LaTeX preamble.
     #
@@ -139,7 +139,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'fits-parse.tex', 'fits-parse Documentation',
+    (master_doc, 'fits-render.tex', 'fits-render Documentation',
      'Zac Slade', 'manual'),
 ]
 
@@ -149,7 +149,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'fits-parse', 'fits-parse Documentation',
+    (master_doc, 'fits-render', 'fits-render Documentation',
      [author], 1)
 ]
 
@@ -160,10 +160,7 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'fits-parse', 'fits-parse Documentation',
-     author, 'fits-parse', 'One line description of project.',
+    (master_doc, 'fits-render', 'fits-render Documentation',
+     author, 'fits-render', 'One line description of project.',
      'Miscellaneous'),
 ]
-
-
-
