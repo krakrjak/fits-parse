@@ -24,6 +24,7 @@ module Data.Fits
     , NumberModifier(..)
     , NumberValue(..)
     , NAxisMetadata(..)
+    , NAxisType(..)
     , Axis(..)
 
       -- * Utility
