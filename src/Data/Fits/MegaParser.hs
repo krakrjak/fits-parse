@@ -18,6 +18,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BS ( c2w )
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Byte as M
+import qualified Text.Megaparsec.Byte.Lexer as MBL
 
 -- explicit imports
 import Numeric.Natural ( Natural )
@@ -53,11 +54,21 @@ headerBlockParse :: Parser HeaderData
 headerBlockParse = do
     simple <- parseSimple
     bitpix <- parseBitPix
+    axisnum <- parseAxisCount
+    axesDesc <- parseNaxes axisnum
+    -- TODO: Parse other sections of the neader for god's sake
     parseEnd
     return defHeader { simpleFormat = simple
-                     , bitPixFormat = bitpix }
+                     , bitPixFormat = bitpix
+                     , nAxisMetaData = parsedNAxisMeta axisnum
+                     , axes = axesDesc }
   where
     defHeader = def :: HeaderData
+    defNAxisMeta = def :: NAxisMetadata
+    parsedNAxisMeta n | n == 0 = defNAxisMeta { naxisType = ZeroAxes
+                                              , axesCount = fromIntegral n }
+    parsedNAxisMeta n          = defNAxisMeta { naxisType = ManyAxes
+                                              , axesCount = fromIntegral n }
 
 parseSimple :: Parser SimpleFormat
 parseSimple = M.string' "simple" >> parseEquals
@@ -79,6 +90,20 @@ parseBitPix = M.string' "bitpix" >> parseEquals
     <|> (M.string' "-32" >> consumeDead >> return ThirtyTwoBitFloat)
     <|> (M.string' "-64" >> consumeDead >> return SixtyFourBitFloat))
 
+parseAxisCount :: Parser Natural
+parseAxisCount = M.string' "naxis" >> parseEquals >> parseNatural
+
+parseNaxes :: Natural -> Parser [Axis]
+parseNaxes n | n == 0 = return []
+parseNaxes n          = do
+    axisNum <- M.string' "naxis" >> parseNatural
+    elemCount <- parseEquals >> parseNatural
+    fmap ([buildAxis axisNum elemCount] ++) $ parseNaxes (n - 1)
+  where
+      defAxis = def :: Axis
+      buildAxis an ec = defAxis { axisNumber = fromIntegral an
+                                , axisElementCount = fromIntegral ec }
+
 skipEmpty :: Parser ()
 skipEmpty = (M.many $ M.satisfy ((0::Word8) ==)) >> return ()
 
@@ -87,6 +112,12 @@ consumeDead = M.space >> skipEmpty
 
 parseEnd :: Parser ()
 parseEnd = M.string' "end" >> consumeDead
+
+parseNatural :: Parser Natural
+parseNatural = do
+    v <- MBL.decimal
+    consumeDead
+    return $ fromIntegral v
 
 countHeaderDataUnits :: ByteString -> IO Natural
 countHeaderDataUnits bs = getAllHDUs bs >>= return . fromIntegral . length
