@@ -168,6 +168,18 @@ NAxisMetadata :: NAxisType -> Int -> NAxisMetadata
 -- | How many axes are there in the dataset?
 [axesCount] :: NAxisMetadata -> Int
 
+-- | An HDU can be simply a header with no data, or it can have axes
+--   defined. <a>NAxisType</a> sums this up nicely with <a>ZeroAxes</a> for
+--   header only data and <a>ManyAxes</a> when there is some data in the
+--   array.
+data NAxisType
+
+-- | No data follows the header.
+ZeroAxes :: NAxisType
+
+-- | There is data in this supposed FITS file.
+ManyAxes :: NAxisType
+
 -- | <a>Axis</a> represents a single NAXIS record.
 data Axis
 Axis :: Int -> Int -> Axis
@@ -219,9 +231,12 @@ headerBlockParse :: Parser HeaderData
 parseSimple :: Parser SimpleFormat
 parseEquals :: Parser ()
 parseBitPix :: Parser BitPixFormat
+parseAxisCount :: Parser Natural
+parseNaxes :: Natural -> Parser [Axis]
 skipEmpty :: Parser ()
 consumeDead :: Parser ()
 parseEnd :: Parser ()
+parseNatural :: Parser Natural
 countHeaderDataUnits :: ByteString -> IO Natural
 getAllHDUs :: ByteString -> IO [HeaderDataUnit]
 getOneHDU :: ByteString -> IO (HeaderDataUnit, ByteString)
