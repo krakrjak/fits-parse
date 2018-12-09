@@ -23,6 +23,7 @@ library:
       - megaparsec
       - liquidhaskell
       - text-latin1
+      - parser-combinators
 
 executables:
   fits-render:
