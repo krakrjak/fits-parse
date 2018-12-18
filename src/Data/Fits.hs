@@ -34,6 +34,7 @@ module Data.Fits
     , hduBlockSize
     ) where
 
+import qualified Data.Text as T
 import Numeric.Natural ( Natural )
 import Data.Text ( Text )
 import Data.ByteString ( ByteString )
@@ -71,7 +72,11 @@ hduBlockSize = hduRecordLength * hduMaxRecords
 data StringType = NullString      -- ^ The NULL character string (e.g. AUTHOR=)
                 | EmptyString     -- ^ An empty string (e.g. AUTHOR="")
                 | DataString      -- ^ Plain ASCII data
-                | UndefinedString -- ^ (e.g. AUTHOR is not in the header)
+
+instance Show StringType where
+    show NullString      = "Null String"
+    show EmptyString     = "Empty quoted String"
+    show DataString      = "String"
 
 -- | A 'StringValue' is a type paired with a possible value.
 data StringValue = StringValue
@@ -83,7 +88,13 @@ data StringValue = StringValue
     text.
 -}
 instance Default StringValue where
-    def = StringValue UndefinedString Nothing
+    def = StringValue NullString Nothing
+
+instance Show StringValue where
+        show (StringValue NullString _) = show NullString
+        show (StringValue EmptyString _) = show EmptyString
+        show (StringValue DataString Nothing) = "No good " ++ show DataString
+        show (StringValue DataString (Just s)) = show DataString ++ T.unpack s
 
 {-| The FITS standard allows for the encoding of unsigned integers, signed
     integers, real numbers, and complex numbers. They are always ASCII
