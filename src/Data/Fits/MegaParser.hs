@@ -187,10 +187,11 @@ getOneHDU bs =
     (header, rest) = BS.splitAt hduBlockSize bs
 
 dataSize :: HeaderData -> Natural
-dataSize h = paddedsize h
+dataSize h = paddedsize
   where
-    wordsize h = fromIntegral . bitPixToWordSize $ bitPixFormat h
-    axesCount h = fromIntegral . length $ axes h
-    datasize h = wordsize h * axesCount h
-    padding h = if axesCount h == 0 then 0 else fromIntegral hduBlockSize - (datasize h `mod` (fromIntegral hduBlockSize))
-    paddedsize h = fromIntegral (datasize h + padding h)
+    axesCount = length $ axes h
+    wordCount  = foldr (*) 1 $ map axisElementCount $ axes h
+    wordsize = fromIntegral . bitPixToWordSize $ bitPixFormat h
+    datasize = wordsize * wordCount
+    padding = if axesCount == 0 then 0 else fromIntegral hduBlockSize - (datasize `mod` (fromIntegral hduBlockSize))
+    paddedsize = fromIntegral (datasize + padding)
