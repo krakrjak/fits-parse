@@ -16,7 +16,7 @@ before_install:
   - stack exec -- ghc --version
 
 install:
-  - stack --no-terminal build --haddock --only-dependencies
+  - travis_wait 30 stack --no-terminal build --haddock --only-dependencies
 
 script:
   - stack --no-terminal build --haddock
