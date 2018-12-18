@@ -184,6 +184,14 @@ data BitPixFormat =
     | ThirtyTwoBitFloat -- ^ BITPIX = -32; IEEE single precision floating point of 32 bits
     | SixtyFourBitFloat -- ^ BITPIX = -64; IEEE double precision floating point of 64 bits
 
+instance Show BitPixFormat where
+        show EightBitInt       = "8 bit unsigned integer"
+        show SixteenBitInt     = "16 bit signed integer"
+        show ThirtyTwoBitInt   = "32 bit signed integer"
+        show SixtyFourBitInt   = "64 bit signed interger"
+        show ThirtyTwoBitFloat = "32 bit IEEE single precision float"
+        show SixtyFourBitFloat = "64 bit IEEE double precision float"
+
 {-| This utility function can be used to get the word count for data in an
     HDU.
 -}
