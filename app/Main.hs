@@ -13,10 +13,11 @@ import qualified Data.ByteString as BS
 
 import System.Log.FastLogger( TimedFastLogger, ToLogStr, LogType( LogStderr )
                             , defaultBufSize, newTimeCache, simpleTimeFormat
-                            , toLogStr, newTimedFastLogger )
+                            , toLogStr, newTimedFastLogger, withTimedFastLogger )
 
 
 -- local library imports
+import Data.Fits ( HeaderDataUnit(..), HeaderData(..) )
 import Data.Fits.MegaParser ( getAllHDUs )
 
 -- | Paramaterized input type for files or standard input.
@@ -73,15 +74,27 @@ main = workOnFITS =<< execParser opts
 workOnFITS :: FitsConfig -> IO ()
 workOnFITS (FitsConfig i o) = do
     timeCache <- newTimeCache simpleTimeFormat
-    (logger, cleanUp) <- newTimedFastLogger timeCache (LogStderr defaultBufSize)
-    fits <- bs i
-    myLog logger $ "[DEBUG] input file size in bytes " ++ (show $ BS.length fits)
-    hdus <- getAllHDUs fits
-
-    cleanUp
+    withTimedFastLogger timeCache (LogStderr defaultBufSize) $ \logger -> do
+        fits <- bs i
+        myLog logger $ "[DEBUG] input file size " ++ (show $ BS.length fits) ++ " bytes\n"
+        hdus <- getAllHDUs fits
+        myLog logger ("[DEBUG] found " ++ (show $ length hdus) ++ " hdu record(s)\n")
+        mapM_ (processHDU logger) hdus
   where
     bs (FileInput f) = BS.readFile f
     bs StdInput = BS.hGetContents stdin
+
+processHDU :: TimedFastLogger -> HeaderDataUnit -> IO ()
+processHDU logger hdu = do
+    myLog logger $ "[DEBUG] Bit Format " ++ (show bpf) ++ "\n"
+    myLog logger $ "[DEBUG] " ++ (show $ length ax) ++ " Axes\n"
+    myLog logger $ "[DEBUG] data block size " ++ (show $ BS.length pd) ++ " bytes\n"
+
+  where
+    hd = headerData hdu
+    pd = payloadData hdu
+    ax = axes hd
+    bpf = bitPixFormat hd
 
 myLog:: ToLogStr msg => TimedFastLogger -> msg -> IO ()
 myLog logger msg = logger $ \ft -> toLogStr ft <> toLogStr ": " <> toLogStr msg
