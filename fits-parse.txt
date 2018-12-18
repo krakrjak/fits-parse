@@ -25,17 +25,29 @@ HeaderDataUnit :: HeaderData -> ByteString -> HeaderDataUnit
 --   that starts 2,880 bytes after the start of the <a>HeaderData</a>.
 data HeaderData
 HeaderData :: SimpleFormat -> BitPixFormat -> NAxisMetadata -> [Axis] -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> HeaderData
+
 [simpleFormat] :: HeaderData -> SimpleFormat
+
 [bitPixFormat] :: HeaderData -> BitPixFormat
+
 [nAxisMetaData] :: HeaderData -> NAxisMetadata
+
 [axes] :: HeaderData -> [Axis]
+
 [objectIdentifier] :: HeaderData -> StringValue
+
 [observationDate] :: HeaderData -> StringValue
+
 [originIdentifier] :: HeaderData -> StringValue
+
 [telescopeIdentifier] :: HeaderData -> StringValue
+
 [instrumentIdentifier] :: HeaderData -> StringValue
+
 [observerIdentifier] :: HeaderData -> StringValue
+
 [authorIdentifier] :: HeaderData -> StringValue
+
 [referenceString] :: HeaderData -> StringValue
 
 -- | The standard defines two possible values for the SIMPLE keyword, T and
@@ -87,9 +99,6 @@ EmptyString :: StringType
 
 -- | Plain ASCII data
 DataString :: StringType
-
--- | (e.g. AUTHOR is not in the header)
-UndefinedString :: StringType
 
 -- | A <a>StringValue</a> is a type paired with a possible value.
 data StringValue
@@ -206,20 +215,19 @@ hduMaxRecords :: Int
 --   boundary.
 hduBlockSize :: Int
 instance Data.Default.Class.Default Data.Fits.HeaderData
+instance GHC.Show.Show Data.Fits.BitPixFormat
 instance Data.Default.Class.Default Data.Fits.Axis
 instance Data.Default.Class.Default Data.Fits.NAxisMetadata
 instance Data.Default.Class.Default Data.Fits.NumberValue
 instance Data.Default.Class.Default Data.Fits.StringValue
+instance GHC.Show.Show Data.Fits.StringValue
+instance GHC.Show.Show Data.Fits.StringType
 
 
 -- | Parsing rules for an HDU in a FITS file.
 module Data.Fits.MegaParser
-type Parser = Parsec Void ByteString
-type ParseErr = ParseError Word8 Void
-data HeaderValues
-FITSStrStrKwd :: StringValue -> StringValue -> HeaderValues
-FITSStrNumKwd :: StringValue -> NumberValue -> HeaderValues
-END :: HeaderValues
+type Parser = Parsec Void Text
+type ParseErr = ParseErrorBundle Text Void
 data DataUnitValues
 FITSUInt8 :: Word8 -> DataUnitValues
 FITSInt16 :: Word16 -> DataUnitValues
@@ -233,10 +241,16 @@ parseEquals :: Parser ()
 parseBitPix :: Parser BitPixFormat
 parseAxisCount :: Parser Natural
 parseNaxes :: Natural -> Parser [Axis]
+parseBzero :: Parser Int
+parseBscale :: Parser Int
+parseCreator :: Parser StringValue
+parseDate :: Parser StringValue
 skipEmpty :: Parser ()
 consumeDead :: Parser ()
 parseEnd :: Parser ()
 parseNatural :: Parser Natural
+parseInteger :: Parser Int
+parseStringValue :: Parser StringValue
 countHeaderDataUnits :: ByteString -> IO Natural
 getAllHDUs :: ByteString -> IO [HeaderDataUnit]
 getOneHDU :: ByteString -> IO (HeaderDataUnit, ByteString)
