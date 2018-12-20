@@ -23,8 +23,6 @@ module Data.Fits
     , NumberType(..)
     , NumberModifier(..)
     , NumberValue(..)
-    , NAxisMetadata(..)
-    , NAxisType(..)
     , Axis(..)
 
       -- * Utility
@@ -161,30 +159,6 @@ data SimpleFormat = Conformant
                   | NonConformant
                     -- ^ Value of SIMPLE=F in the header. /unsupported/
 
-{-| An HDU can be simply a header with no data, or it can have axes
-    defined. 'NAxisType' sums this up nicely with 'ZeroAxes' for header only
-    data and 'ManyAxes' when there is some data  in the array.
--}
-data NAxisType = ZeroAxes -- ^ No data follows the header.
-               | ManyAxes -- ^ There is data in this supposed FITS file.
-
-{-| If we have 'ManyAxes', how many do we have. That's the question
-   'NAxisMetadata' is here to answer. The 'axesCount' record corresponds
-   with how many NAXISN records there are in the header. If 'axesCount' is
-   three then the header will contain 3 NAXISN records, NAXIS1, NAXIS2, and
-   NAXIS3.
--}
-data NAxisMetadata = NAxisMetadata
-    { naxisType :: NAxisType -- ^ Are there zero or more axes of data?
-    , axesCount :: Int       -- ^ How many axes are there in the dataset?
-    }
-
-{-| The default instance of 'NAxisMetadata' has 'ZeroAxes' and the count
-    is set to 0.
--}
-instance Default NAxisMetadata where
-    def = NAxisMetadata ZeroAxes 0
-
 -- | 'Axis' represents a single NAXIS record.
 data Axis = Axis
     { axisNumber       :: Int -- ^ The axis number under consideration
@@ -273,17 +247,15 @@ unPix (R a) = a
 -}
 data HeaderData = HeaderData
     { simpleFormat :: SimpleFormat
-      -- ^
+      -- ^ SIMPLE
     , bitPixFormat :: BitPixFormat
-      -- ^
-    , nAxisMetaData :: NAxisMetadata
-      -- ^
+      -- ^ BITPIX
     , axes :: [Axis]
-      -- ^
+      -- ^ Axes metadata
     , objectIdentifier :: StringValue
       -- ^
     , observationDate :: StringValue
-      -- ^
+      -- ^ DATE
     , originIdentifier :: StringValue
       -- ^
     , telescopeIdentifier :: StringValue
@@ -293,13 +265,13 @@ data HeaderData = HeaderData
     , observerIdentifier :: StringValue
       -- ^
     , authorIdentifier :: StringValue
-      -- ^
+      -- ^ CREATOR
     , referenceString :: StringValue
       -- ^
     }
 
 instance Default HeaderData where
-    def = HeaderData Conformant ThirtyTwoBitInt (def :: NAxisMetadata) []
+    def = HeaderData NonConformant EightBitInt []
         (def :: StringValue) (def :: StringValue) (def :: StringValue)
         (def :: StringValue) (def :: StringValue) (def :: StringValue)
         (def :: StringValue) (def :: StringValue)

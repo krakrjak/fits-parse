@@ -68,17 +68,11 @@ headerBlockParse = do
                <*> toPermutation (parseEnd <?> "end")
     return defHeader { simpleFormat = simple
                      , bitPixFormat = bitpix
-                     , nAxisMetaData = parsedNAxisMeta (length axesDesc)
                      , axes = axesDesc
                      , observationDate = pDate
                      , authorIdentifier = pCreator }
   where
     defHeader = def :: HeaderData
-    defNAxisMeta = def :: NAxisMetadata
-    parsedNAxisMeta n | n == 0 = defNAxisMeta { naxisType = ZeroAxes
-                                              , axesCount = fromIntegral n }
-    parsedNAxisMeta n          = defNAxisMeta { naxisType = ManyAxes
-                                              , axesCount = fromIntegral n }
 
 parseSimple :: Parser SimpleFormat
 parseSimple = M.string' "simple" >> parseEquals
