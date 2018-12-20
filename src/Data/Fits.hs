@@ -253,21 +253,21 @@ data HeaderData = HeaderData
     , axes :: [Axis]
       -- ^ Axes metadata
     , objectIdentifier :: StringValue
-      -- ^
+      -- ^ OBJECT
     , observationDate :: StringValue
       -- ^ DATE
     , originIdentifier :: StringValue
-      -- ^
+      -- ^ OBJECT
     , telescopeIdentifier :: StringValue
-      -- ^
+      -- ^ TELESCOP
     , instrumentIdentifier :: StringValue
-      -- ^
+      -- ^ INSTRUME
     , observerIdentifier :: StringValue
-      -- ^
+      -- ^ OBSERVER
     , authorIdentifier :: StringValue
       -- ^ CREATOR
     , referenceString :: StringValue
-      -- ^
+      -- ^ REFERENC
     }
 
 instance Default HeaderData where
