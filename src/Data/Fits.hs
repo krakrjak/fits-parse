@@ -219,12 +219,12 @@ deriving instance (Show a) => Show (Pix a)
 deriving instance (Eq a) => Eq (Pix a)
 
 getPix :: (Fractional a, Integral a) => BitPixFormat -> Get (Pix a)
-getPix EightBitInt       = getWord8    >>= return . I . fromIntegral
-getPix SixteenBitInt     = getWord16be >>= return . I . fromIntegral
-getPix ThirtyTwoBitInt   = getWord32be >>= return . I . fromIntegral
-getPix SixtyFourBitInt   = getWord64be >>= return . I . fromIntegral
-getPix ThirtyTwoBitFloat = getWord32be >>= return . R . realToFrac
-getPix SixtyFourBitFloat = getWord64be >>= return . R . realToFrac
+getPix EightBitInt       = getInt8    >>= return . I . fromIntegral
+getPix SixteenBitInt     = getInt16be >>= return . I . fromIntegral
+getPix ThirtyTwoBitInt   = getInt32be >>= return . I . fromIntegral
+getPix SixtyFourBitInt   = getInt64be >>= return . I . fromIntegral
+getPix ThirtyTwoBitFloat = getFloatbe >>= return . R . realToFrac
+getPix SixtyFourBitFloat = getDoublebe >>= return . R . realToFrac
 
 getPixs :: (Fractional a, Integral a) => Int -> BitPixFormat -> Get [Pix a]
 getPixs c bpf | c < 1 = return []
