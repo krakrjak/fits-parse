@@ -1,5 +1,7 @@
 module Main where
 
+-- base
+import Control.Monad (when)
 import Data.Monoid( (<>) )
 import Control.Applicative( (<|>), (<**>) )
 import System.IO ( stdin )
@@ -17,7 +19,7 @@ import System.Log.FastLogger( TimedFastLogger, ToLogStr, LogType( LogStderr )
 
 
 -- local library imports
-import Data.Fits ( HeaderDataUnit(..), HeaderData(..) )
+import Data.Fits ( HeaderDataUnit(..), HeaderData(..), Axis(..) )
 import Data.Fits.MegaParser ( getAllHDUs )
 
 -- | Paramaterized input type for files or standard input.
@@ -87,14 +89,19 @@ workOnFITS (FitsConfig i o) = do
 processHDU :: TimedFastLogger -> HeaderDataUnit -> IO ()
 processHDU logger hdu = do
     myLog logger $ "[DEBUG] Bit Format " ++ (show bpf) ++ "\n"
-    myLog logger $ "[DEBUG] " ++ (show $ length ax) ++ " Axes\n"
     myLog logger $ "[DEBUG] data block size " ++ (show $ BS.length pd) ++ " bytes\n"
+    myLog logger $ "[DEBUG] " ++ (show $ length ax) ++ " Axes\n"
+    when (length ax > 0) (mapM_ logAxes ax)
 
   where
     hd = headerData hdu
     pd = payloadData hdu
     ax = axes hd
     bpf = bitPixFormat hd
+    logAxes a = myLog logger $ "[DEBUG] Axis: "
+                            ++ (show $ axisNumber a)
+                            ++ " count: "
+                            ++ (show $ axisElementCount a) ++ "\n"
 
 myLog:: ToLogStr msg => TimedFastLogger -> msg -> IO ()
 myLog logger msg = logger $ \ft -> toLogStr ft <> toLogStr ": " <> toLogStr msg
