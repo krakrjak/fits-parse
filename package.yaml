@@ -24,6 +24,7 @@ library:
       - liquidhaskell
       - text-latin1
       - parser-combinators
+      - binary
 
 executables:
   fits-render:

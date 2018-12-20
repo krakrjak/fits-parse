@@ -9,7 +9,7 @@ Stability   : experimental
 Definitions for the data types needed to parse an HDU in a FITS block.
 -}
 
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, GADTs, StandaloneDeriving #-}
 module Data.Fits
     ( -- * Main data types
       HeaderDataUnit(..)
@@ -34,13 +34,26 @@ module Data.Fits
     , hduBlockSize
     ) where
 
+---- text
 import qualified Data.Text as T
-import Numeric.Natural ( Natural )
-import Data.Text ( Text )
-import Data.ByteString ( ByteString )
+---- bytestring
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
 
+import Numeric.Natural ( Natural )
+
+---- text
+import Data.Text ( Text )
+
+---- bytestring
+import Data.ByteString ( ByteString )
+
+---- default
 import Data.Default( Default, def )
+
+---- binaryi
+import Data.Binary
+import Data.Binary.Get
 
 -- | A single record in the HDU is an eighty byte word.
 {-@ type HDURecordLength = {v:Int | v = 80} @-}
@@ -213,6 +226,46 @@ bitPixToWordSize ThirtyTwoBitInt   = 32
 bitPixToWordSize ThirtyTwoBitFloat = 32
 bitPixToWordSize SixtyFourBitInt   = 64
 bitPixToWordSize SixtyFourBitFloat = 64
+
+{-| This utility function can be used to get the size in bytes of the
+-   format.
+-}
+bitPixToByteSize :: BitPixFormat -> Natural
+bitPixToByteSize EightBitInt       = 1
+bitPixToByteSize SixteenBitInt     = 2
+bitPixToByteSize ThirtyTwoBitInt   = 4
+bitPixToByteSize ThirtyTwoBitFloat = 4
+bitPixToByteSize SixtyFourBitInt   = 8
+bitPixToByteSize SixtyFourBitFloat = 8
+
+data Pix a where
+        R :: (Fractional a) => a -> Pix a
+        I :: (Integral a) => a -> Pix a
+deriving instance (Show a) => Show (Pix a)
+deriving instance (Eq a) => Eq (Pix a)
+
+getPix :: (Fractional a, Integral a) => BitPixFormat -> Get (Pix a)
+getPix EightBitInt       = getWord8    >>= return . I . fromIntegral
+getPix SixteenBitInt     = getWord16be >>= return . I . fromIntegral
+getPix ThirtyTwoBitInt   = getWord32be >>= return . I . fromIntegral
+getPix SixtyFourBitInt   = getWord64be >>= return . I . fromIntegral
+getPix ThirtyTwoBitFloat = getWord32be >>= return . R . realToFrac
+getPix SixtyFourBitFloat = getWord64be >>= return . R . realToFrac
+
+getPixs :: (Fractional a, Integral a) => Int -> BitPixFormat -> Get [Pix a]
+getPixs c bpf | c < 1 = return []
+getPixs c bpf | otherwise = do
+    empty <- isEmpty
+    if empty
+      then return []
+      else do
+        p <- getPix bpf
+        ps <- getPixs (c - 1) bpf
+        return (p:ps)
+
+unPix :: (Fractional a, Integral a) => Pix a -> a
+unPix (I a) = a
+unPix (R a) = a
 
 {-| The header part of the HDU is vital carrying not only authorship
     metadata, but also specifying how to make sense of the binary payload
