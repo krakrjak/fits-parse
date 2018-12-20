@@ -57,18 +57,30 @@ data DataUnitValues
 headerBlockParse :: Parser HeaderData
 headerBlockParse = do
     -- TODO: Parse other sections of the neader for god's sake
-    (simple, bitpix, axesDesc, bZero, bScale, pCreator, pDate, pEnd) <- runPermutation $
-        (,,,,,,,) <$> toPermutation (parseSimple <?> "simple")
+    --  HISTORY and COMMENT along with CONTINUE handling is missing
+    (simple, bitpix, axesDesc, bZero, bScale, ref, obs, instr, tele, object, pCreator, pDate, pEnd) <-
+      runPermutation $
+        (,,,,,,,,,,,,) <$> toPermutation (parseSimple <?> "simple")
                <*> toPermutation (parseBitPix <?> "bitpix")
                <*> toPermutation ((parseAxisCount >>= parseNaxes) <?> "axis parsing")
                <*> toPermutationWithDefault 0 (parseBzero <?> "bzero")
                <*> toPermutationWithDefault 0 (parseBscale <?> "bscale")
+               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseReference <?> "reference")
+               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseObserver <?> "observer")
+               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseInstrument <?> "instrument")
+               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseTelescope <?> "telescope")
+               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseObject <?> "object")
                <*> toPermutationWithDefault (StringValue NullString Nothing) (parseCreator <?> "creator")
                <*> toPermutationWithDefault (StringValue NullString Nothing) (parseDate <?> "date")
                <*> toPermutation (parseEnd <?> "end")
     return defHeader { simpleFormat = simple
                      , bitPixFormat = bitpix
                      , axes = axesDesc
+                     , referenceString = ref
+                     , observerIdentifier = obs
+                     , instrumentIdentifier = instr
+                     , telescopeIdentifier = tele
+                     , objectIdentifier = object
                      , observationDate = pDate
                      , authorIdentifier = pCreator }
   where
@@ -113,6 +125,21 @@ parseBzero = M.string' "bzero" >> parseEquals >> parseInteger
 
 parseBscale :: Parser Int
 parseBscale = M.string' "bscale" >> parseEquals >> parseInteger
+
+parseReference :: Parser StringValue
+parseReference = M.string' "referenc" >> parseEquals >> parseStringValue
+
+parseObserver :: Parser StringValue
+parseObserver = M.string' "observer" >> parseEquals >> parseStringValue
+
+parseInstrument :: Parser StringValue
+parseInstrument = M.string' "instrume" >> parseEquals >> parseStringValue
+
+parseTelescope :: Parser StringValue
+parseTelescope = M.string' "telescop" >> parseEquals >> parseStringValue
+
+parseObject :: Parser StringValue
+parseObject = M.string' "object" >> parseEquals >> parseStringValue
 
 parseCreator :: Parser StringValue
 parseCreator = M.string' "creator" >> parseEquals >> parseStringValue
