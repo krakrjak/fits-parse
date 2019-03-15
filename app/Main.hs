@@ -12,6 +12,7 @@ import Options.Applicative( Parser, strOption, optional, short, long
                           , argument, str )
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 
 import System.Log.FastLogger( TimedFastLogger, ToLogStr, LogType( LogStderr )
                             , defaultBufSize, newTimeCache, simpleTimeFormat
@@ -19,7 +20,7 @@ import System.Log.FastLogger( TimedFastLogger, ToLogStr, LogType( LogStderr )
 
 
 -- local library imports
-import Data.Fits ( HeaderDataUnit(..), HeaderData(..), Axis(..) )
+import Data.Fits ( HeaderDataUnit(..), HeaderData(..), Axis(..), parsePix )
 import Data.Fits.MegaParser ( getAllHDUs )
 
 -- | Paramaterized input type for files or standard input.
@@ -92,6 +93,9 @@ processHDU logger hdu = do
     myLog logger $ "[DEBUG] data block size " ++ (show $ BS.length pd) ++ " bytes\n"
     myLog logger $ "[DEBUG] " ++ (show $ length ax) ++ " Axes\n"
     when (length ax > 0) (mapM_ logAxes ax)
+    let pixCount = foldr (\x acc -> axisElementCount x * acc) 1 ax
+    pixs <- parsePix pixCount bpf (LBS.fromStrict pd)
+    myLog logger $ "[DEBUG] Total Pix Count: " ++ (show $ length pixs) ++ "\n"
 
   where
     hd = headerData hdu

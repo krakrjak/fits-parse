@@ -9,7 +9,9 @@ Stability   : experimental
 Definitions for the data types needed to parse an HDU in a FITS block.
 -}
 
-{-# LANGUAGE OverloadedStrings, GADTs, StandaloneDeriving #-}
+{-# LANGUAGE PartialTypeSignatures, DataKinds, ExistentialQuantification
+  , ScopedTypeVariables, GADTs
+  , OverloadedStrings, StandaloneDeriving, TypeOperators, TypeFamilies #-}
 module Data.Fits
     ( -- * Main data types
       HeaderDataUnit(..)
@@ -30,6 +32,7 @@ module Data.Fits
     , hduRecordLength
     , hduMaxRecords
     , hduBlockSize
+    , parsePix
     ) where
 
 ---- text
@@ -38,7 +41,11 @@ import qualified Data.Text as T
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 
+---- base
 import Numeric.Natural ( Natural )
+
+---- ghc
+import GHC.TypeNats (KnownNat, Nat)
 
 ---- text
 import Data.Text ( Text )
@@ -212,21 +219,17 @@ bitPixToByteSize ThirtyTwoBitFloat = 4
 bitPixToByteSize SixtyFourBitInt   = 8
 bitPixToByteSize SixtyFourBitFloat = 8
 
-data Pix a where
-        R :: (Fractional a) => a -> Pix a
-        I :: (Integral a) => a -> Pix a
-deriving instance (Show a) => Show (Pix a)
-deriving instance (Eq a) => Eq (Pix a)
+data Pix = forall a. Num a => Pix a
 
-getPix :: (Fractional a, Integral a) => BitPixFormat -> Get (Pix a)
-getPix EightBitInt       = getInt8    >>= return . I . fromIntegral
-getPix SixteenBitInt     = getInt16be >>= return . I . fromIntegral
-getPix ThirtyTwoBitInt   = getInt32be >>= return . I . fromIntegral
-getPix SixtyFourBitInt   = getInt64be >>= return . I . fromIntegral
-getPix ThirtyTwoBitFloat = getFloatbe >>= return . R . realToFrac
-getPix SixtyFourBitFloat = getDoublebe >>= return . R . realToFrac
+getPix :: BitPixFormat -> Get Pix
+getPix EightBitInt       = getInt8    >>= return . Pix . fromIntegral
+getPix SixteenBitInt     = getInt16be >>= return . Pix . fromIntegral
+getPix ThirtyTwoBitInt   = getInt32be >>= return . Pix . fromIntegral
+getPix SixtyFourBitInt   = getInt64be >>= return . Pix . fromIntegral
+getPix ThirtyTwoBitFloat = getFloatbe >>= return . Pix . realToFrac
+getPix SixtyFourBitFloat = getDoublebe >>= return . Pix . realToFrac
 
-getPixs :: (Fractional a, Integral a) => Int -> BitPixFormat -> Get [Pix a]
+getPixs :: Int -> BitPixFormat -> Get [Pix]
 getPixs c bpf | c < 1 = return []
 getPixs c bpf | otherwise = do
     empty <- isEmpty
@@ -237,14 +240,20 @@ getPixs c bpf | otherwise = do
         ps <- getPixs (c - 1) bpf
         return (p:ps)
 
-unPix :: (Fractional a, Integral a) => Pix a -> a
-unPix (I a) = a
-unPix (R a) = a
+parsePix :: Int -> BitPixFormat -> BL.ByteString -> IO [Pix]
+parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
+
+pixDimsByCol :: [Axis] -> [Int]
+pixDimsByCol as = map (axisElementCount) as
+
+pixDimsByRow :: [Axis] -> [Int]
+pixDimsByRow = reverse . pixDimsByCol
 
 {-| The header part of the HDU is vital carrying not only authorship
     metadata, but also specifying how to make sense of the binary payload
     that starts 2,880 bytes after the start of the 'HeaderData'.
 -}
+
 data HeaderData = HeaderData
     { simpleFormat :: SimpleFormat
       -- ^ SIMPLE
