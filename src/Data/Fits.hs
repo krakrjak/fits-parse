@@ -219,7 +219,11 @@ bitPixToByteSize ThirtyTwoBitFloat = 4
 bitPixToByteSize SixtyFourBitInt   = 8
 bitPixToByteSize SixtyFourBitFloat = 8
 
-data Pix = forall a. Num a => Pix a
+
+{- | `Pix` contains the data representation for that single data point.
+     A `Pix` datatype can be just about any `Num` type
+-}
+data Pix = forall a. Num a => Pix a -- ^A Unit of FITS data
 
 getPix :: BitPixFormat -> Get Pix
 getPix EightBitInt       = getInt8    >>= return . Pix . fromIntegral
