@@ -244,12 +244,21 @@ getPixs c bpf | otherwise = do
         ps <- getPixs (c - 1) bpf
         return (p:ps)
 
+{- `parsePix` takes an element count, a format and a bytestring and
+ produces a column-row major list of data elements from the bytestring.
+-}
 parsePix :: Int -> BitPixFormat -> BL.ByteString -> IO [Pix]
 parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
 
+{- `pixDimsByCol` takes a list of Axis and gives a column-row major list of
+    axes dimensions.
+-}
 pixDimsByCol :: [Axis] -> [Int]
 pixDimsByCol as = map (axisElementCount) as
 
+{- `pixDimsByRow` takes a list of Axis and gives a row-column major list of
+    axes dimensions.
+-}
 pixDimsByRow :: [Axis] -> [Int]
 pixDimsByRow = reverse . pixDimsByCol
 
