@@ -20,19 +20,7 @@ install:
 
 script:
   - stack --no-terminal build --haddock
-  - stack --no-terminal exec -- liquid src/Data/Fits.hs
   - mv "$(stack --no-terminal path --dist-dir)"/doc/html/fits-parse .haddocks
-
-matrix:
-  fast_finish: true
-  include:
-    - env: STACK_GHC=YES
-      addons:
-        apt:
-          sources:
-            - sourceline: 'ppa:hvr/z3'
-          packages:
-            - z3
 
 branches:
   only:

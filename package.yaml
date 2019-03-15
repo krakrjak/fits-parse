@@ -21,7 +21,6 @@ library:
       - data-default
       - text
       - megaparsec
-      - liquidhaskell
       - text-latin1
       - parser-combinators
       - binary
