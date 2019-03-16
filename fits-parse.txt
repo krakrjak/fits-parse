@@ -2,6 +2,10 @@
 -- See Hoogle, http://www.haskell.org/hoogle/
 
 
+-- | Parse FITS files
+--   
+--   Parse and manipulate FITS data natively in Haskell without the need of
+--   fits-io.
 @package fits-parse
 @version 0.0.1
 
