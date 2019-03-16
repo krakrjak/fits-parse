@@ -24,6 +24,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 -- explicit imports
+import Control.Applicative ( (<$>) )
 import Control.Monad ( void )
 import Numeric.Natural ( Natural )
 import Data.ByteString ( ByteString )
@@ -114,7 +115,7 @@ parseNaxes n | n == 0 = return []
 parseNaxes n          = do
     axisNum <- M.string' "naxis" >> parseNatural
     elemCount <- parseEquals >> parseNatural
-    fmap ([buildAxis axisNum elemCount] ++) $ parseNaxes (n - 1)
+    ([buildAxis axisNum elemCount] ++) <$> parseNaxes (n - 1)
   where
       defAxis = def :: Axis
       buildAxis an ec = defAxis { axisNumber = fromIntegral an
@@ -148,7 +149,7 @@ parseDate :: Parser StringValue
 parseDate = M.string' "date" >> parseEquals >> parseStringValue
 
 skipEmpty :: Parser ()
-skipEmpty = (M.many $ M.satisfy (('\0') ==)) >> return ()
+skipEmpty = void (M.many $ M.satisfy ('\0' ==))
 
 consumeDead :: Parser ()
 consumeDead = M.space >> skipEmpty
@@ -182,7 +183,7 @@ parseStringValue = do
       else return (StringValue DataString (Just v))
 
 countHeaderDataUnits :: ByteString -> IO Natural
-countHeaderDataUnits bs = getAllHDUs bs >>= return . fromIntegral . length
+countHeaderDataUnits bs = fromIntegral . length <$> getAllHDUs bs
 
 -- TODO: make the recursive case work. Currently limited to one HDU.
 -- The current issue is that when the parser fails on an HDU parse, it
@@ -190,20 +191,19 @@ countHeaderDataUnits bs = getAllHDUs bs >>= return . fromIntegral . length
 getAllHDUs :: ByteString -> IO [HeaderDataUnit]
 getAllHDUs bs = do
     (hdu, rest) <- getOneHDU bs
-    case BS.length rest < hduBlockSize of
-      True  -> return [hdu]
-      False -> return [hdu] -- fmap ([hdu] ++) $ getAllHDUs rest
+    return [hdu]
+--    if BS.length rest < hduBlockSize then return [hdu] else return [hdu]
 
 getOneHDU :: ByteString -> IO (HeaderDataUnit, ByteString)
 getOneHDU bs =
-    case isAscii header of
-      False -> error "Header data is not ASCII. Please Check your input file and try again"
-      True  -> do
+    if isAscii header
+      then
         case M.runParser headerBlockParse "FITS" (TE.decodeUtf8 header) of
           Right mainHeader -> do
             let (dataUnit, remainder) = BS.splitAt (fromIntegral $ dataSize mainHeader) rest
             return (HeaderDataUnit mainHeader dataUnit, remainder)
           Left e -> let err = M.errorBundlePretty e in error err
+      else error "Header data is not ASCII. Please Check your input file and try again"
   where
     (header, rest) = BS.splitAt hduBlockSize bs
 
@@ -211,8 +211,8 @@ dataSize :: HeaderData -> Natural
 dataSize h = paddedsize
   where
     axesCount = length $ axes h
-    wordCount  = foldr (*) 1 $ map axisElementCount $ axes h
+    wordCount  = product $ map axisElementCount $ axes h
     wordsize = fromIntegral . bitPixToWordSize $ bitPixFormat h
     datasize = wordsize * wordCount
-    padding = if axesCount == 0 then 0 else fromIntegral hduBlockSize - (datasize `mod` (fromIntegral hduBlockSize))
+    padding = if axesCount == 0 then 0 else fromIntegral hduBlockSize - datasize `mod` fromIntegral hduBlockSize
     paddedsize = fromIntegral (datasize + padding)

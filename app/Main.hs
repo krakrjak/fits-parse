@@ -79,9 +79,9 @@ workOnFITS (FitsConfig i o) = do
     timeCache <- newTimeCache simpleTimeFormat
     withTimedFastLogger timeCache (LogStderr defaultBufSize) $ \logger -> do
         fits <- bs i
-        myLog logger $ "[DEBUG] input file size " ++ (show $ BS.length fits) ++ " bytes\n"
+        myLog logger $ "[DEBUG] input file size " ++ show (BS.length fits) ++ " bytes\n"
         hdus <- getAllHDUs fits
-        myLog logger ("[DEBUG] found " ++ (show $ length hdus) ++ " hdu record(s)\n")
+        myLog logger ("[DEBUG] found " ++ show (length hdus) ++ " hdu record(s)\n")
         mapM_ (processHDU logger) hdus
   where
     bs (FileInput f) = BS.readFile f
@@ -89,13 +89,13 @@ workOnFITS (FitsConfig i o) = do
 
 processHDU :: TimedFastLogger -> HeaderDataUnit -> IO ()
 processHDU logger hdu = do
-    myLog logger $ "[DEBUG] Bit Format " ++ (show bpf) ++ "\n"
-    myLog logger $ "[DEBUG] data block size " ++ (show $ BS.length pd) ++ " bytes\n"
-    myLog logger $ "[DEBUG] " ++ (show $ length ax) ++ " Axes\n"
-    when (length ax > 0) (mapM_ logAxes ax)
+    myLog logger $ "[DEBUG] Bit Format " ++ show bpf ++ "\n"
+    myLog logger $ "[DEBUG] data block size " ++ show (BS.length pd) ++ " bytes\n"
+    myLog logger $ "[DEBUG] " ++ show (length ax) ++ " Axes\n"
+    unless (null ax) (mapM_ logAxes ax)
     let pixCount = foldr (\x acc -> axisElementCount x * acc) 1 ax
     pixs <- parsePix pixCount bpf (LBS.fromStrict pd)
-    myLog logger $ "[DEBUG] Total Pix Count: " ++ (show $ length pixs) ++ "\n"
+    myLog logger $ "[DEBUG] Total Pix Count: " ++ show (length pixs) ++ "\n"
 
   where
     hd = headerData hdu
@@ -103,9 +103,9 @@ processHDU logger hdu = do
     ax = axes hd
     bpf = bitPixFormat hd
     logAxes a = myLog logger $ "[DEBUG] Axis: "
-                            ++ (show $ axisNumber a)
+                            ++ show (axisNumber a)
                             ++ " count: "
-                            ++ (show $ axisElementCount a) ++ "\n"
+                            ++ show (axisElementCount a) ++ "\n"
 
 myLog:: ToLogStr msg => TimedFastLogger -> msg -> IO ()
 myLog logger msg = logger $ \ft -> toLogStr ft <> toLogStr ": " <> toLogStr msg

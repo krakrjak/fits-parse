@@ -11,7 +11,7 @@ Definitions for the data types needed to parse an HDU in a FITS block.
 
 {-# LANGUAGE PartialTypeSignatures, DataKinds, ExistentialQuantification
   , ScopedTypeVariables, GADTs
-  , OverloadedStrings, StandaloneDeriving, TypeOperators, TypeFamilies #-}
+  , OverloadedStrings, TypeOperators, TypeFamilies #-}
 module Data.Fits
     ( -- * Main data types
       HeaderDataUnit(..)
@@ -226,16 +226,15 @@ bitPixToByteSize SixtyFourBitFloat = 8
 data Pix = forall a. Num a => Pix a -- ^A Unit of FITS data
 
 getPix :: BitPixFormat -> Get Pix
-getPix EightBitInt       = getInt8    >>= return . Pix . fromIntegral
-getPix SixteenBitInt     = getInt16be >>= return . Pix . fromIntegral
-getPix ThirtyTwoBitInt   = getInt32be >>= return . Pix . fromIntegral
-getPix SixtyFourBitInt   = getInt64be >>= return . Pix . fromIntegral
-getPix ThirtyTwoBitFloat = getFloatbe >>= return . Pix . realToFrac
-getPix SixtyFourBitFloat = getDoublebe >>= return . Pix . realToFrac
+getPix EightBitInt       = Pix . fromIntegral <$> getInt8
+getPix SixteenBitInt     = Pix . fromIntegral <$> getInt16be
+getPix ThirtyTwoBitInt   = Pix . fromIntegral <$> getInt32be
+getPix SixtyFourBitInt   = Pix . fromIntegral <$> getInt64be
+getPix ThirtyTwoBitFloat = Pix . realToFrac <$> getFloatbe
+getPix SixtyFourBitFloat = Pix . realToFrac <$> getDoublebe
 
 getPixs :: Int -> BitPixFormat -> Get [Pix]
-getPixs c bpf | c < 1 = return []
-getPixs c bpf | otherwise = do
+getPixs c bpf = do
     empty <- isEmpty
     if empty
       then return []
@@ -254,7 +253,7 @@ parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
     axes dimensions.
 -}
 pixDimsByCol :: [Axis] -> [Int]
-pixDimsByCol as = map (axisElementCount) as
+pixDimsByCol as = map axisElementCount
 
 {- `pixDimsByRow` takes a list of Axis and gives a row-column major list of
     axes dimensions.
