@@ -1,7 +1,7 @@
 module Main where
 
 -- base
-import Control.Monad (when)
+import Control.Monad ( unless )
 import Data.Monoid( (<>) )
 import Control.Applicative( (<|>), (<**>) )
 import System.IO ( stdin )

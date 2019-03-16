@@ -253,7 +253,7 @@ parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
     axes dimensions.
 -}
 pixDimsByCol :: [Axis] -> [Int]
-pixDimsByCol as = map axisElementCount
+pixDimsByCol = map axisElementCount
 
 {- `pixDimsByRow` takes a list of Axis and gives a row-column major list of
     axes dimensions.
