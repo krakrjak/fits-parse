@@ -33,6 +33,10 @@ module Data.Fits
     , hduMaxRecords
     , hduBlockSize
     , parsePix
+    , isBitPixInt
+    , isBitPixFloat
+    , pixsUnwrapI
+    , pixsUnwrapD
     ) where
 
 ---- text
@@ -219,19 +223,72 @@ bitPixToByteSize ThirtyTwoBitFloat = 4
 bitPixToByteSize SixtyFourBitInt   = 8
 bitPixToByteSize SixtyFourBitFloat = 8
 
+{- | This utility functions quickly lets you know if you are dealing with
+     integer data.
+-}
+isBitPixInt :: BitPixFormat -> Bool
+isBitPixInt EightBitInt     = True
+isBitPixInt SixteenBitInt   = True
+isBitPixInt ThirtyTwoBitInt = True
+isBitPixInt SixtyFourBitInt = True
+isBitPixInt _ = False
+
+{- | This utility functions quickly lets you know if you are dealing with
+     floating point data.
+-}
+isBitPixFloat :: BitPixFormat -> Bool
+isBitPixFloat ThirtyTwoBitFloat = True
+isBitPixFloat SixtyFourBitFloat = True
+isBitPixFloat _ = False
 
 {- | `Pix` contains the data representation for that single data point.
      A `Pix` datatype can be just about any `Num` type
 -}
-data Pix = forall a. Num a => Pix a -- ^A Unit of FITS data
+data Pix = PB Int | PI16 Int | PI32 Int | PI64 Int | PF Double | PD Double
+
+{- | `unPixI` unwraps an integer based Pix and returns the Int contained
+      within.
+-}
+unPixI :: Pix -> Int
+unPixI (PB b)   = b
+unPixI (PI16 i) = i
+unPixI (PI32 i) = i
+unPixI (PI64 i) = i
+unPixI _        = error "Pix are not stored as integers, invalid unpacking"
+
+{- | `unPixD` unwraps a floating point based `Pix` and returns the Double contained
+      within.
+-}
+unPixD :: Pix -> Double
+unPixD (PF d)   = d
+unPixD (PD d)   = d
+unPixD _        = error "Pix are not stored as floating point values, invalid unpacking"
+
+{- | `pixUnwrapI` takes the Pix wrapper off integer formatted lists of
+     `Pix`
+-}
+pixsUnwrapI :: BitPixFormat -> [Pix] -> [Int]
+pixsUnwrapI EightBitInt       pxs = map unPixI pxs
+pixsUnwrapI SixteenBitInt     pxs = map unPixI pxs
+pixsUnwrapI ThirtyTwoBitInt   pxs = map unPixI pxs
+pixsUnwrapI SixtyFourBitInt   pxs = map unPixI pxs
+pixsUnwrapI _ _ = error "BitPixFormat is not an integer type"
+
+{- | `pixUnwrapD` takes the `Pix` wrapper off floating point lists of
+     `Pix`.
+-}
+pixsUnwrapD :: BitPixFormat -> [Pix] -> [Double]
+pixsUnwrapD ThirtyTwoBitFloat pxs = map unPixD pxs
+pixsUnwrapD SixtyFourBitFloat pxs = map unPixD pxs
+pixsUnwrapD _ _ = error "BitPixFormat is not a floating point type"
 
 getPix :: BitPixFormat -> Get Pix
-getPix EightBitInt       = Pix . fromIntegral <$> getInt8
-getPix SixteenBitInt     = Pix . fromIntegral <$> getInt16be
-getPix ThirtyTwoBitInt   = Pix . fromIntegral <$> getInt32be
-getPix SixtyFourBitInt   = Pix . fromIntegral <$> getInt64be
-getPix ThirtyTwoBitFloat = Pix . realToFrac <$> getFloatbe
-getPix SixtyFourBitFloat = Pix . realToFrac <$> getDoublebe
+getPix EightBitInt       = PB . fromIntegral <$> getInt8
+getPix SixteenBitInt     = PI16 . fromIntegral <$> getInt16be
+getPix ThirtyTwoBitInt   = PI32 . fromIntegral <$> getInt32be
+getPix SixtyFourBitInt   = PI64 . fromIntegral <$> getInt64be
+getPix ThirtyTwoBitFloat = PF . realToFrac <$> getFloatbe
+getPix SixtyFourBitFloat = PD . realToFrac <$> getDoublebe
 
 getPixs :: Int -> BitPixFormat -> Get [Pix]
 getPixs c bpf = do

@@ -34,3 +34,4 @@ executables:
         - optparse-applicative
         - JuicyPixels
         - fast-logger
+        - vector

@@ -14,13 +14,16 @@ import Options.Applicative( Parser, strOption, optional, short, long
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 
+import qualified Data.Vector as V
+
 import System.Log.FastLogger( TimedFastLogger, ToLogStr, LogType( LogStderr )
                             , defaultBufSize, newTimeCache, simpleTimeFormat
                             , toLogStr, newTimedFastLogger, withTimedFastLogger )
 
 
 -- local library imports
-import Data.Fits ( HeaderDataUnit(..), HeaderData(..), Axis(..), parsePix )
+import Data.Fits ( HeaderDataUnit(..), HeaderData(..), Axis(..)
+                 , parsePix, isBitPixInt, isBitPixFloat, pixsUnwrapI, pixsUnwrapD )
 import Data.Fits.MegaParser ( getAllHDUs )
 
 -- | Paramaterized input type for files or standard input.
@@ -95,7 +98,15 @@ processHDU logger hdu = do
     unless (null ax) (mapM_ logAxes ax)
     let pixCount = foldr (\x acc -> axisElementCount x * acc) 1 ax
     pixs <- parsePix pixCount bpf (LBS.fromStrict pd)
+    let pxsI = if isBitPixInt bpf then pixsUnwrapI bpf pixs else []
+        pxsD = if isBitPixFloat bpf then pixsUnwrapD bpf pixs else []
+        pVI = V.fromList pxsI
+        pVD = V.fromList pxsD
     myLog logger $ "[DEBUG] Total Pix Count: " ++ show (length pixs) ++ "\n"
+    myLog logger $ "[DEBUG] Unwrapped Int Count: " ++ show (length pxsI) ++ "\n"
+    myLog logger $ "[DEBUG] Unwrapped Double Count: " ++ show (length pxsD) ++ "\n"
+    myLog logger $ "[DEBUG] Vector Int Count: " ++ show (length pVI) ++ "\n"
+    myLog logger $ "[DEBUG] Vector Double Count: " ++ show (length pVD) ++ "\n"
 
   where
     hd = headerData hdu
