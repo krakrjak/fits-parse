@@ -16,6 +16,9 @@ import qualified Data.ByteString.Lazy as LBS
 
 import qualified Data.Vector as V
 
+---- statistics
+import Statistics.Sample ( range, mean, variance, stdDev, stdErrMean )
+
 import System.Log.FastLogger( TimedFastLogger, ToLogStr, LogType( LogStderr )
                             , defaultBufSize, newTimeCache, simpleTimeFormat
                             , toLogStr, newTimedFastLogger, withTimedFastLogger )
@@ -107,6 +110,11 @@ processHDU logger hdu = do
     myLog logger $ "[DEBUG] Unwrapped Double Count: " ++ show (length pxsD) ++ "\n"
     myLog logger $ "[DEBUG] Vector Int Count: " ++ show (length pVI) ++ "\n"
     myLog logger $ "[DEBUG] Vector Double Count: " ++ show (length pVD) ++ "\n"
+    if (length ax == 2) && isBitPixFloat bpf
+      then
+        bitMapProcess logger ax pVD
+      else
+        myLog logger "[DEBUG] skipping bitmap analysis.\n"
 
   where
     hd = headerData hdu
@@ -117,6 +125,23 @@ processHDU logger hdu = do
                             ++ show (axisNumber a)
                             ++ " count: "
                             ++ show (axisElementCount a) ++ "\n"
+
+{- | If we happen to be working in floating point 2D, let's try the
+     following.
+-}
+bitMapProcess :: TimedFastLogger
+              -> [Axis]          -- ^ Metadata about the column oriented axes
+              -> V.Vector Double -- ^ Data is stored in column-row major order
+              -> IO ()
+bitMapProcess logger []  _    = myLog logger "[ERROR] BitMap processing run with no axes.\n"
+bitMapProcess logger [_] _    = myLog logger "[ERROR] BitMap processing run with only one axis.\n"
+bitMapProcess logger (y:x) v = do
+  myLog logger $ "[DEBUG] Mean:     " ++ show (mean v) ++ "\n"
+  myLog logger $ "[DEBUG] Range:    " ++ show (range v) ++ "\n"
+  myLog logger $ "[DEBUG] Variance: " ++ show (variance v) ++ "\n"
+  myLog logger $ "[DEBUG] Std deviation: " ++ show (stdDev v) ++ "\n"
+  myLog logger $ "[DEBUG] Std error of the mean: " ++ show (stdErrMean v) ++ "\n"
+
 
 myLog:: ToLogStr msg => TimedFastLogger -> msg -> IO ()
 myLog logger msg = logger $ \ft -> toLogStr ft <> toLogStr ": " <> toLogStr msg
