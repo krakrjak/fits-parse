@@ -6,8 +6,8 @@ homepage:            https://github.com/krakrjak/fits-parse#readme
 license:             BSD2
 author:              Zac Slade
 maintainer:          krakrjak@gmail.com
-copyright:           Copyright (c) 2018 Zac Slade
-category:            Web
+copyright:           Copyright (c) 2019 Zac Slade
+category:            Science
 extra-source-files:
 - README.md
 
@@ -35,3 +35,4 @@ executables:
         - JuicyPixels
         - fast-logger
         - vector
+        - statistics
