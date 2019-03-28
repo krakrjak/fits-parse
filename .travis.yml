@@ -16,10 +16,10 @@ before_install:
   - stack exec -- ghc --version
 
 install:
-  - travis_wait 30 stack --no-terminal build --haddock --only-dependencies
+  - travis_wait 30 stack --no-terminal build --haddock --only-dependencies --flag fits-parse:examples
 
 script:
-  - stack --no-terminal build --haddock
+  - stack --no-terminal build --haddock --flag fits-parse:examples
   - mv "$(stack --no-terminal path --dist-dir)"/doc/html/fits-parse .haddocks
 
 branches:
