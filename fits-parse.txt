@@ -99,6 +99,16 @@ ThirtyTwoBitFloat :: BitPixFormat
 -- | BITPIX = -64; IEEE double precision floating point of 64 bits
 SixtyFourBitFloat :: BitPixFormat
 
+-- | Following <a>BitPixFormat</a> we have a tag for integer and floating
+--   point values. We box them up to ease parsing.
+data Pix
+PB :: Int -> Pix
+PI16 :: Int -> Pix
+PI32 :: Int -> Pix
+PI64 :: Int -> Pix
+PF :: Double -> Pix
+PD :: Double -> Pix
+
 -- | The standard defines two possible values for the SIMPLE keyword, T and
 --   F. The T refers to a <a>Conformant</a> format while F refers to a
 --   <a>NonConformant</a> format. At this time only the <a>Conformant</a>,
