@@ -35,8 +35,7 @@ executables:
   omnibus:
     when:
       - condition: flag(examples)
-        then: { buildable: true }
-        else: { buildable: false }
+        buildable: true
     source-dirs: examples/omnibus
     main: Main.hs
     dependencies:
