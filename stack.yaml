@@ -1,5 +1,11 @@
 resolver: lts-13.12
 pvp-bounds: both
 
+### Uncomment the next three lines to build the examples
+#flags:
+#  fits-parse:
+#    examples: true
+## A one liner `stack build --flag fits-parse:examples`
+
 packages:
     - .

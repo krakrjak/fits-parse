@@ -9,6 +9,7 @@ Stability   : experimental
 Parsing rules for an HDU in a FITS file.
 -}
 
+{-# OPTIONS_HADDOCK hide #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Data.Fits.MegaParser where
