@@ -13,30 +13,35 @@ Definitions for the data types needed to parse an HDU in a FITS block.
   , ScopedTypeVariables, GADTs
   , OverloadedStrings, TypeOperators, TypeFamilies #-}
 module Data.Fits
-    ( -- * Main data types
-      HeaderDataUnit(..)
-    , HeaderData(..)
+    ( -- * Data payload functions
+      parsePix
+    , pixsUnwrapI
+    , pixsUnwrapD
 
-      -- ** Helper data types
-    , SimpleFormat(..)
+      -- * Main data types
+    , HeaderDataUnit(..)
+    , HeaderData(..)
     , BitPixFormat(..)
+
+      -- ** Header Data Types
+    , SimpleFormat(..)
+    , Axis(..)
     , StringType(..)
     , StringValue(..)
     , NumberType(..)
     , NumberModifier(..)
     , NumberValue(..)
-    , Axis(..)
 
       -- * Utility
+    , isBitPixInt
+    , isBitPixFloat
     , bitPixToWordSize
+
+      -- ** Constants
     , hduRecordLength
     , hduMaxRecords
     , hduBlockSize
-    , parsePix
-    , isBitPixInt
-    , isBitPixFloat
-    , pixsUnwrapI
-    , pixsUnwrapD
+
     ) where
 
 ---- text
@@ -241,14 +246,12 @@ isBitPixFloat ThirtyTwoBitFloat = True
 isBitPixFloat SixtyFourBitFloat = True
 isBitPixFloat _ = False
 
-{- | `Pix` contains the data representation for that single data point.
-     A `Pix` datatype can be just about any `Num` type
+{- | Following `BitPixFormat` we have a tag for integer and floating point
+     values. We box them up to ease parsing.
 -}
 data Pix = PB Int | PI16 Int | PI32 Int | PI64 Int | PF Double | PD Double
 
-{- | `unPixI` unwraps an integer based Pix and returns the Int contained
-      within.
--}
+{- | Removes the `Pix` tag from an `Int` type within. -}
 unPixI :: Pix -> Int
 unPixI (PB b)   = b
 unPixI (PI16 i) = i
@@ -256,17 +259,13 @@ unPixI (PI32 i) = i
 unPixI (PI64 i) = i
 unPixI _        = error "Pix are not stored as integers, invalid unpacking"
 
-{- | `unPixD` unwraps a floating point based `Pix` and returns the Double contained
-      within.
--}
+{- | Removes the `Pix` tag from a `Double` type within. -}
 unPixD :: Pix -> Double
 unPixD (PF d)   = d
 unPixD (PD d)   = d
 unPixD _        = error "Pix are not stored as floating point values, invalid unpacking"
 
-{- | `pixUnwrapI` takes the Pix wrapper off integer formatted lists of
-     `Pix`
--}
+{- | Remove the Pix wrapper for integer `Pix` lists.  -}
 pixsUnwrapI :: BitPixFormat -> [Pix] -> [Int]
 pixsUnwrapI EightBitInt       pxs = map unPixI pxs
 pixsUnwrapI SixteenBitInt     pxs = map unPixI pxs
@@ -274,9 +273,7 @@ pixsUnwrapI ThirtyTwoBitInt   pxs = map unPixI pxs
 pixsUnwrapI SixtyFourBitInt   pxs = map unPixI pxs
 pixsUnwrapI _ _ = error "BitPixFormat is not an integer type"
 
-{- | `pixUnwrapD` takes the `Pix` wrapper off floating point lists of
-     `Pix`.
--}
+{- | Remove the `Pix` wrapper for floating point `Pix` lists.  -}
 pixsUnwrapD :: BitPixFormat -> [Pix] -> [Double]
 pixsUnwrapD ThirtyTwoBitFloat pxs = map unPixD pxs
 pixsUnwrapD SixtyFourBitFloat pxs = map unPixD pxs
@@ -300,8 +297,9 @@ getPixs c bpf = do
         ps <- getPixs (c - 1) bpf
         return (p:ps)
 
-{- `parsePix` takes an element count, a format and a bytestring and
- produces a column-row major list of data elements from the bytestring.
+{- | This is the main low-level function which parses the data portion of an
+     HDU. You need and element count, a format and a bytestring. The resulting
+     list is produced in column-row major order as specified in the standard.
 -}
 parsePix :: Int -> BitPixFormat -> BL.ByteString -> IO [Pix]
 parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
