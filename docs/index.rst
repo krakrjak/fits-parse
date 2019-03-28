@@ -1,8 +1,3 @@
-.. fits-parse documentation master file, created by
-   sphinx-quickstart on Wed Apr 25 14:25:18 2018.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 .. image:: https://travis-ci.com/krakrjak/fits-parse.svg?branch=master
     :target: https://travis-ci.com/krakrjak/fits-parse
 .. image:: https://readthedocs.org/projects/fits-parse/badge/?version=latest
@@ -16,12 +11,12 @@ Welcome to fits-parse's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+If you use FITS files in your work or play and you use Hakell, or would like
+to, then *fits-parse* just might be the library you've been looking for. This
+project is still very young and only really works on the example FITS file it
+ships with, but this will improve and may already be better than anticipated.
+
 `Haddock Docs <https://krakrjak.github.io/fits-parse/index.html>`_ are the API docs for the project.
 
 
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
 * :ref:`search`
