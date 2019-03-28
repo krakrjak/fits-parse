@@ -22,6 +22,7 @@ module Data.Fits
     , HeaderDataUnit(..)
     , HeaderData(..)
     , BitPixFormat(..)
+    , Pix(..)
 
       -- ** Header Data Types
     , SimpleFormat(..)
