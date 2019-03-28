@@ -13,6 +13,18 @@
 -- | Definitions for the data types needed to parse an HDU in a FITS block.
 module Data.Fits
 
+-- | This is the main low-level function which parses the data portion of
+--   an HDU. You need and element count, a format and a bytestring. The
+--   resulting list is produced in column-row major order as specified in
+--   the standard.
+parsePix :: Int -> BitPixFormat -> ByteString -> IO [Pix]
+
+-- | Remove the Pix wrapper for integer <a>Pix</a> lists.
+pixsUnwrapI :: BitPixFormat -> [Pix] -> [Int]
+
+-- | Remove the <a>Pix</a> wrapper for floating point <a>Pix</a> lists.
+pixsUnwrapD :: BitPixFormat -> [Pix] -> [Double]
+
 -- | The <a>HeaderDataUnit</a> is the full HDU. Both the header information
 --   is encoded alongside the <a>Axis</a> payload.
 data HeaderDataUnit
@@ -63,18 +75,6 @@ HeaderData :: SimpleFormat -> BitPixFormat -> [Axis] -> StringValue -> StringVal
 -- | REFERENC
 [referenceString] :: HeaderData -> StringValue
 
--- | The standard defines two possible values for the SIMPLE keyword, T and
---   F. The T refers to a <a>Conformant</a> format while F refers to a
---   <a>NonConformant</a> format. At this time only the <a>Conformant</a>,
---   T, format is supported.
-data SimpleFormat
-
--- | Value of SIMPLE=T in the header. <i>supported</i>
-Conformant :: SimpleFormat
-
--- | Value of SIMPLE=F in the header. <i>unsupported</i>
-NonConformant :: SimpleFormat
-
 -- | The <a>BitPixFormat</a> is the nitty gritty of how the <a>Axis</a>
 --   data is layed out in the file. The standard recognizes six formats:
 --   unsigned 8 bit integer, two's complement binary integers at 16, 32,
@@ -98,6 +98,28 @@ ThirtyTwoBitFloat :: BitPixFormat
 
 -- | BITPIX = -64; IEEE double precision floating point of 64 bits
 SixtyFourBitFloat :: BitPixFormat
+
+-- | The standard defines two possible values for the SIMPLE keyword, T and
+--   F. The T refers to a <a>Conformant</a> format while F refers to a
+--   <a>NonConformant</a> format. At this time only the <a>Conformant</a>,
+--   T, format is supported.
+data SimpleFormat
+
+-- | Value of SIMPLE=T in the header. <i>supported</i>
+Conformant :: SimpleFormat
+
+-- | Value of SIMPLE=F in the header. <i>unsupported</i>
+NonConformant :: SimpleFormat
+
+-- | <a>Axis</a> represents a single NAXIS record.
+data Axis
+Axis :: Int -> Int -> Axis
+
+-- | The axis number under consideration
+[axisNumber] :: Axis -> Int
+
+-- | The number of elements in this axis
+[axisElementCount] :: Axis -> Int
 
 -- | There are many types of strings defined in the FITS documentation.
 --   Refered to as "character string(s)" in the documentation, they can be
@@ -176,15 +198,13 @@ NumberValue :: NumberType -> NumberModifier -> Text -> Maybe NumberModifier -> M
 -- | All <a>NumberType</a> may have an exponent
 [exponent] :: NumberValue -> Maybe Int
 
--- | <a>Axis</a> represents a single NAXIS record.
-data Axis
-Axis :: Int -> Int -> Axis
+-- | This utility functions quickly lets you know if you are dealing with
+--   integer data.
+isBitPixInt :: BitPixFormat -> Bool
 
--- | The axis number under consideration
-[axisNumber] :: Axis -> Int
-
--- | The number of elements in this axis
-[axisElementCount] :: Axis -> Int
+-- | This utility functions quickly lets you know if you are dealing with
+--   floating point data.
+isBitPixFloat :: BitPixFormat -> Bool
 
 -- | This utility function can be used to get the word count for data in an
 --   HDU.
@@ -201,23 +221,6 @@ hduMaxRecords :: Int
 --   other words 2,880 bytes. These blocks are padded with zeros to this
 --   boundary.
 hduBlockSize :: Int
-parsePix :: Int -> BitPixFormat -> ByteString -> IO [Pix]
-
--- | This utility functions quickly lets you know if you are dealing with
---   integer data.
-isBitPixInt :: BitPixFormat -> Bool
-
--- | This utility functions quickly lets you know if you are dealing with
---   floating point data.
-isBitPixFloat :: BitPixFormat -> Bool
-
--- | <tt>pixUnwrapI</tt> takes the Pix wrapper off integer formatted lists
---   of <a>Pix</a>
-pixsUnwrapI :: BitPixFormat -> [Pix] -> [Int]
-
--- | <tt>pixUnwrapD</tt> takes the <a>Pix</a> wrapper off floating point
---   lists of <a>Pix</a>.
-pixsUnwrapD :: BitPixFormat -> [Pix] -> [Double]
 instance Data.Default.Class.Default Data.Fits.HeaderData
 instance GHC.Show.Show Data.Fits.BitPixFormat
 instance Data.Default.Class.Default Data.Fits.Axis
