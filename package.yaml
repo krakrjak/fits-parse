@@ -1,7 +1,7 @@
 name:                fits-parse
 version:             0.0.1
 synopsis:            Parse FITS files
-description:         Parse and manipulate FITS data natively in Haskell without the need of fits-io.
+description:         Parse and manipulate FITS data natively in Haskell
 homepage:            https://github.com/krakrjak/fits-parse#readme
 license:             BSD2
 author:              Zac Slade
