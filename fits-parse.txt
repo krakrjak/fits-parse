@@ -4,8 +4,7 @@
 
 -- | Parse FITS files
 --   
---   Parse and manipulate FITS data natively in Haskell without the need of
---   fits-io.
+--   Parse and manipulate FITS data natively in Haskell
 @package fits-parse
 @version 0.0.1
 
