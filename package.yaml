@@ -10,6 +10,11 @@ copyright:           Copyright (c) 2019 Zac Slade
 category:            Science
 extra-source-files:
   - README.md
+  - docs/Makefile
+  - docs/make.bat
+  - docs/conf.py
+  - docs/index.rst
+  - docs/examples/omnibus.rst
 
 flags:
   examples:
