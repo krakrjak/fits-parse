@@ -7,10 +7,6 @@
 Welcome to fits-parse's documentation!
 ======================================
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
-
 If you use FITS files in your work or play and you use Hakell, or would like
 to, then *fits-parse* just might be the library you've been looking for. This
 project is still very young and only really works on the example FITS file it
@@ -21,3 +17,9 @@ the library. The *omnibus* program glues together the basics and does logging
 and is intended to be a kitchen sink sort of example program.
 
 `Haddock Docs <https://krakrjak.github.io/fits-parse/index.html>`_ are the API docs for the project.
+
+.. toctree::
+   :maxdepth: 2
+
+   examples/omnibus.rst
+
