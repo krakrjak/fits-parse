@@ -19,7 +19,7 @@ import qualified Data.Vector as V
 ---- statistics
 import Statistics.Sample ( range, mean, variance, stdDev, stdErrMean )
 
-import System.Log.FastLogger( TimedFastLogger, ToLogStr, LogType( LogStderr )
+import System.Log.FastLogger( TimedFastLogger, ToLogStr, LogType'( LogStderr )
                             , defaultBufSize, newTimeCache, simpleTimeFormat
                             , toLogStr, newTimedFastLogger, withTimedFastLogger )
 

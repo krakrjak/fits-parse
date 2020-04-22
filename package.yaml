@@ -1,5 +1,5 @@
 name:                fits-parse
-version:             0.0.1
+version:             0.1.0
 synopsis:            Parse FITS files
 description:         Parse and manipulate FITS data natively in Haskell
 homepage:            https://github.com/krakrjak/fits-parse#readme
