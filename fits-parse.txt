@@ -6,7 +6,7 @@
 --   
 --   Parse and manipulate FITS data natively in Haskell
 @package fits-parse
-@version 0.0.1
+@version 0.1.0
 
 
 -- | Definitions for the data types needed to parse an HDU in a FITS block.
