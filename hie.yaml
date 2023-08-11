@@ -1,0 +1,13 @@
+cradle:
+  cabal:
+    - path: "src"
+      component: "lib:fits-parse"
+
+    - path: "examples/omnibus/Main.hs"
+      component: "fits-parse:exe:omnibus"
+
+    - path: "examples/omnibus/Paths_fits_parse.hs"
+      component: "fits-parse:exe:omnibus"
+
+    - path: "test"
+      component: "fits-parse:test:fits-tests"

@@ -50,3 +50,14 @@ executables:
     - fast-logger
     - vector
     - statistics
+
+
+tests:
+  fits-tests:
+    source-dirs: test
+    main: Spec.hs
+    dependencies:
+    - fits-parse
+    - tasty
+    - tasty-hunit
+
