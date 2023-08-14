@@ -23,6 +23,7 @@ import qualified Text.Megaparsec.Char as M
 import qualified Text.Megaparsec.Char.Lexer as MCL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Map as Map
 
 -- explicit imports
 import Control.Applicative ( (<$>) )
@@ -56,45 +57,71 @@ data DataUnitValues
   | FITSFloat32 Float
   | FITSFloat64 Double 
 
+
+
+parseRawHeader :: Parser RawHeaderData
+parseRawHeader = do
+    pairs <- M.manyTill ( parseKeywordValue <* M.newline ) (M.string "END")
+    consumeDead
+    pure $ Map.fromList pairs
+
+parseKeywordValue :: Parser (Keyword, Value)
+parseKeywordValue = do
+    key <- parseKeyword
+    parseEquals
+    val <- parseValue
+    pure (key, val)
+
+parseKeyword :: Parser Keyword
+parseKeyword = Keyword <$> parseText
+
+parseValue :: Parser Value
+parseValue = 
+    (M.try $ Float <$> MCL.signed M.space MCL.float) <|>
+    (M.try $ Integer <$> MCL.signed M.space MCL.decimal) <|>
+    (String <$> parseStringValue)
+
+parseText :: Parser Text
+parseText = do
+    T.pack <$> M.many M.alphaNumChar
+
+
 headerBlockParse :: Parser HeaderData
 headerBlockParse = do
     -- TODO: Parse other sections of the neader for god's sake
     --  HISTORY and COMMENT along with CONTINUE handling is missing
-    (simple, bitpix, axesDesc, bZero, bScale, ref, obs, instr, tele, object, pCreator, pDate, pEnd) <-
-      runPermutation $
-        (,,,,,,,,,,,,) <$> toPermutation (parseSimple <?> "simple")
-               <*> toPermutation (parseBitPix <?> "bitpix")
-               <*> toPermutation ((parseAxisCount >>= parseNaxes) <?> "axis parsing")
-               <*> toPermutationWithDefault 0 (parseBzero <?> "bzero")
-               <*> toPermutationWithDefault 0 (parseBscale <?> "bscale")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseReference <?> "reference")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseObserver <?> "observer")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseInstrument <?> "instrument")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseTelescope <?> "telescope")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseObject <?> "object")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseCreator <?> "creator")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseDate <?> "date")
-               <*> toPermutation (parseEnd <?> "end")
-    return defHeader { simpleFormat = simple
-                     , bitPixFormat = bitpix
-                     , axes = axesDesc
-                     , referenceString = ref
-                     , observerIdentifier = obs
-                     , instrumentIdentifier = instr
-                     , telescopeIdentifier = tele
-                     , objectIdentifier = object
-                     , observationDate = pDate
-                     , authorIdentifier = pCreator }
-  where
-    defHeader = def :: HeaderData
+    (simple, bitpix, axes, pEnd) <-
+        runPermutation $
+            (,,,)
+                <$> toPermutation (parseSimple <?> "simple")
+                <*> toPermutation (parseBitPix <?> "bitpix")
+                <*> toPermutation ((parseAxisCount >>= parseNaxes) <?> "axis parsing")
+                -- <*> toPermutationWithDefault 0 (parseBzero <?> "bzero")
+                -- <*> toPermutationWithDefault 0 (parseBscale <?> "bscale")
+                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseReference <?> "reference")
+                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseObserver <?> "observer")
+                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseInstrument <?> "instrument")
+                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseTelescope <?> "telescope")
+                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseObject <?> "object")
+                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseCreator <?> "creator")
+                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseDate <?> "date")
+                <*> toPermutation (parseEnd <?> "end")
+    return
+        HeaderData
+            { simple = simple
+            , bitpix = bitpix
+            , naxes = axes
+            }
 
 parseSimple :: Parser SimpleFormat
-parseSimple = M.string' "simple" >> parseEquals
-    >> ((conformParse >> consumeDead >> return Conformant)
-    <|> (nonConformParse >> consumeDead >> return NonConformant))
+parseSimple =
+    M.string' "simple"
+        >> parseEquals
+        >> (conformParse >> consumeDead >> return Conformant)
+        -- <|> (nonConformParse >> consumeDead >> return NonConformant)
   where
     conformParse = M.char' 't'
-    nonConformParse = M.anySingle
+    -- nonConformParse = M.anySingle
 
 parseEquals :: Parser ()
 parseEquals = M.space >> M.char '=' >> M.space
@@ -111,16 +138,13 @@ parseBitPix  = M.string' "bitpix" >> parseEquals
 parseAxisCount :: Parser Natural
 parseAxisCount = M.string' "naxis" >> parseEquals >> parseNatural
 
-parseNaxes :: Natural -> Parser [Axis]
-parseNaxes n | n == 0 = return []
-parseNaxes n          = do
+parseNaxes :: Natural -> Parser NAxes
+parseNaxes n | n == 0 = return (NAxes [])
+parseNaxes n = do
     axisNum <- M.string' "naxis" >> parseNatural
     elemCount <- parseEquals >> parseNatural
-    ([buildAxis axisNum elemCount] ++) <$> parseNaxes (n - 1)
-  where
-      defAxis = def :: Axis
-      buildAxis an ec = defAxis { axisNumber = fromIntegral an
-                                , axisElementCount = fromIntegral ec }
+    rest <- axes <$> parseNaxes (n - 1)
+    return $ NAxes $ elemCount : rest
 
 parseBzero :: Parser Int
 parseBzero = M.string' "bzero" >> parseEquals >> parseInteger
@@ -128,25 +152,25 @@ parseBzero = M.string' "bzero" >> parseEquals >> parseInteger
 parseBscale :: Parser Int
 parseBscale = M.string' "bscale" >> parseEquals >> parseInteger
 
-parseReference :: Parser StringValue
+parseReference :: Parser Text
 parseReference = M.string' "referenc" >> parseEquals >> parseStringValue
 
-parseObserver :: Parser StringValue
+parseObserver :: Parser Text
 parseObserver = M.string' "observer" >> parseEquals >> parseStringValue
 
-parseInstrument :: Parser StringValue
+parseInstrument :: Parser Text
 parseInstrument = M.string' "instrume" >> parseEquals >> parseStringValue
 
-parseTelescope :: Parser StringValue
+parseTelescope :: Parser Text
 parseTelescope = M.string' "telescop" >> parseEquals >> parseStringValue
 
-parseObject :: Parser StringValue
+parseObject :: Parser Text
 parseObject = M.string' "object" >> parseEquals >> parseStringValue
 
-parseCreator :: Parser StringValue
+parseCreator :: Parser Text
 parseCreator = M.string' "creator" >> parseEquals >> parseStringValue
 
-parseDate :: Parser StringValue
+parseDate :: Parser Text
 parseDate = M.string' "date" >> parseEquals >> parseStringValue
 
 skipEmpty :: Parser ()
@@ -170,18 +194,16 @@ parseInteger = do
     consumeDead
     return v
 
-parseStringValue :: Parser StringValue
-parseStringValue = do 
+parseStringValue :: Parser Text
+parseStringValue = do
     -- The rules are weird, NULL means a NULL string, '' is an empty
     -- string, a ' followed by a bunch of spaces and a close ' is
     -- considered an empty string, and trailing whitespace is ignored
     -- within the quotes, but not leading spaces.
-    ls <- M.between (M.char '\'') (M.char '\'') $ M.many $ M.anySingleBut '\''
+    ls <- M.between (M.char quote) (M.char quote) $ M.many $ M.anySingleBut quote
     consumeDead
-    let v = M.tokensToChunk (Proxy :: Proxy Text) ls
-    if T.length v < 1
-      then return (StringValue EmptyString Nothing)
-      else return (StringValue DataString (Just v))
+    return (T.pack ls)
+    where quote = '\''
 
 countHeaderDataUnits :: ByteString -> IO Natural
 countHeaderDataUnits bs = fromIntegral . length <$> getAllHDUs bs
@@ -193,8 +215,8 @@ getAllHDUs :: ByteString -> IO [HeaderDataUnit]
 getAllHDUs bs = do
     (hdu, rest) <- getOneHDU bs
     return [hdu]
---    if BS.length rest < hduBlockSize then return [hdu] else return [hdu]
 
+--    if BS.length rest < hduBlockSize then return [hdu] else return [hdu]
 getOneHDU :: ByteString -> IO (HeaderDataUnit, ByteString)
 getOneHDU bs =
     if isAscii header
@@ -209,11 +231,13 @@ getOneHDU bs =
     (header, rest) = BS.splitAt hduBlockSize bs
 
 dataSize :: HeaderData -> Natural
-dataSize h = paddedsize
+dataSize h = wordSize * wordCount
   where
-    axesCount = length $ axes h
-    wordCount  = product $ map axisElementCount $ axes h
-    wordsize = fromIntegral . bitPixToWordSize $ bitPixFormat h
-    datasize = wordsize * wordCount
-    padding = if axesCount == 0 then 0 else fromIntegral hduBlockSize - datasize `mod` fromIntegral hduBlockSize
-    paddedsize = fromIntegral (datasize + padding)
+    -- paddedsize
+
+    wordCount = fromIntegral $ product $ axes $ naxes h
+    wordSize = fromIntegral . bitPixToWordSize $ bitpix h
+
+--   datasize = wordsize * wordCount
+--   padding = if axesCount == 0 then 0 else fromIntegral hduBlockSize - datasize `mod` fromIntegral hduBlockSize
+--   paddedsize = fromIntegral (datasize + padding)

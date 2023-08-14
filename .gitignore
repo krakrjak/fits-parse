@@ -6,3 +6,4 @@ docs/_build/*
 test.py
 pyproject.toml
 dist-newstyle/
+.nvim.lua

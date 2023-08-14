@@ -11,6 +11,7 @@ Definitions for the data types needed to parse an HDU in a FITS block.
 
 {-# LANGUAGE PartialTypeSignatures, DataKinds, ExistentialQuantification
   , ScopedTypeVariables, GADTs
+  , GeneralizedNewtypeDeriving
   , OverloadedStrings, TypeOperators, TypeFamilies #-}
 module Data.Fits
     ( -- * Data payload functions
@@ -19,6 +20,9 @@ module Data.Fits
     , pixsUnwrapD
 
       -- * Main data types
+    , Keyword(..)
+    , Value(..)
+    , RawHeaderData(..)
     , HeaderDataUnit(..)
     , HeaderData(..)
     , BitPixFormat(..)
@@ -26,12 +30,7 @@ module Data.Fits
 
       -- ** Header Data Types
     , SimpleFormat(..)
-    , Axis(..)
-    , StringType(..)
-    , StringValue(..)
-    , NumberType(..)
-    , NumberModifier(..)
-    , NumberValue(..)
+    , NAxes(..)
 
       -- * Utility
     , isBitPixInt
@@ -51,6 +50,8 @@ import qualified Data.Text as T
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 
+import Data.String (IsString)
+
 ---- base
 import Numeric.Natural ( Natural )
 
@@ -59,6 +60,7 @@ import GHC.TypeNats (KnownNat, Nat)
 
 ---- text
 import Data.Text ( Text )
+import Data.Map ( Map )
 
 ---- bytestring
 import Data.ByteString ( ByteString )
@@ -93,78 +95,6 @@ hduMaxRecords = 36
 hduBlockSize :: Int
 hduBlockSize = hduRecordLength * hduMaxRecords
  
-{-| There are many types of strings defined in the FITS documentation.
-    Refered to as "character string(s)" in the documentation, they can be
-    null, empty, undefined, or contain characters (printable ASCII only).
--} 
-data StringType = NullString      -- ^ The NULL character string (e.g. AUTHOR=)
-                | EmptyString     -- ^ An empty string (e.g. AUTHOR="")
-                | DataString      -- ^ Plain ASCII data
-
-instance Show StringType where
-    show NullString      = "Null String"
-    show EmptyString     = "Empty quoted String"
-    show DataString      = "String"
-
--- | A 'StringValue' is a type paired with a possible value.
-data StringValue = StringValue
-    { stringType :: StringType  -- ^ Which 'StringType' is this value?
-    , stringValue :: Maybe Text -- ^ The payload of a character string
-    }
-
-{-| The default instance of 'StringValue' is an undefined string with no
-    text.
--}
-instance Default StringValue where
-    def = StringValue NullString Nothing
-
-instance Show StringValue where
-        show (StringValue NullString _) = show NullString
-        show (StringValue EmptyString _) = show EmptyString
-        show (StringValue DataString Nothing) = "No good " ++ show DataString
-        show (StringValue DataString (Just s)) = show DataString ++ T.unpack s
-
-{-| The FITS standard allows for the encoding of unsigned integers, signed
-    integers, real numbers, and complex numbers. They are always ASCII
-    encoded. See 5.2 of the standard for more details.
--}
-data NumberType =
-      IntegerType -- ^ HDU ASCII encoded integer number
-    | RealType    -- ^ HDU ASCII encoded real number
-    | ComplexType -- ^ HDU ASCII encoded complex number
-
--- | Utility data type to help with the ASCII representation of numbers
-data NumberModifier =
-      Positive -- ^ HDU positive number value
-    | Negative -- ^ HDU negative number value
-    | Zero     -- ^ HDU numeric value is zero, could be positive or negative
-
-{-| 'NumberValue' contains an encoded numeric record from a data field.
-  This data type still needs to be converted into more useful Haskell data
-  types.
--}
-data NumberValue = NumberValue
-    { numberType        :: NumberType
-      -- ^ Key to decoding the structure
-    , realModifier      :: NumberModifier
-      -- ^ Encoding the sign of the real part
-    , realPart          :: Text
-      -- ^ All 'NumberType' have a real part (sign stripped)
-    , imaginaryModifier :: Maybe NumberModifier
-      -- ^ Encoding the sign of the imaginary part
-    , imaginaryPart     :: Maybe Text
-      -- ^ Only 'ComplexType' have an imaginary part (sign stripped)
-    , exponentModifier  :: Maybe NumberModifier
-      -- ^ 'Positive', 'Negative', or 'Zero'
-    , exponent          :: Maybe Int
-      -- ^ All 'NumberType' may have an exponent
-    }
-
-{-| The default instance for 'NumberValue' is a 32-bit integer of zero with
-    no imaginary or exponent parts.
--}
-instance Default NumberValue where
-    def = NumberValue IntegerType Zero "0" Nothing Nothing Nothing Nothing
 
 {-| The standard defines two possible values for the SIMPLE keyword, T and
     F. The T refers to a 'Conformant' format while F refers to
@@ -173,18 +103,17 @@ instance Default NumberValue where
 -}
 data SimpleFormat = Conformant
                     -- ^ Value of SIMPLE=T in the header. /supported/
-                  | NonConformant
+                    -- NonConformat
                     -- ^ Value of SIMPLE=F in the header. /unsupported/
 
--- | 'Axis' represents a single NAXIS record.
-data Axis = Axis
-    { axisNumber       :: Int -- ^ The axis number under consideration
-    , axisElementCount :: Int -- ^ The number of elements in this axis
-    }
+-- | 'NAxes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes
+newtype NAxes = NAxes { axes :: [Natural] }
+    deriving (Semigroup, Monoid)
 
 -- | The default instance for 'Axis' is NAXIS=0 with zero elements.
-instance Default Axis where
-    def = Axis 0 0
+instance Default NAxes where
+    def = NAxes []
+
 
 {-| The 'BitPixFormat' is the nitty gritty of how the 'Axis' data is layed
     out in the file. The standard recognizes six formats: unsigned 8 bit
@@ -305,53 +234,82 @@ getPixs c bpf = do
 parsePix :: Int -> BitPixFormat -> BL.ByteString -> IO [Pix]
 parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
 
-{- `pixDimsByCol` takes a list of Axis and gives a column-row major list of
-    axes dimensions.
--}
-pixDimsByCol :: [Axis] -> [Int]
-pixDimsByCol = map axisElementCount
-
-{- `pixDimsByRow` takes a list of Axis and gives a row-column major list of
-    axes dimensions.
--}
-pixDimsByRow :: [Axis] -> [Int]
-pixDimsByRow = reverse . pixDimsByCol
+-- {- `pixDimsByCol` takes a list of Axis and gives a column-row major list of
+--     axes dimensions.
+-- -}
+-- pixDimsByCol :: [Axis] -> [Int]
+-- pixDimsByCol = map axisElementCount
+--
+-- {- `pixDimsByRow` takes a list of Axis and gives a row-column major list of
+--     axes dimensions.
+-- -}
+-- pixDimsByRow :: [Axis] -> [Int]
+-- pixDimsByRow = reverse . pixDimsByCol
 
 {-| The header part of the HDU is vital carrying not only authorship
     metadata, but also specifying how to make sense of the binary payload
     that starts 2,880 bytes after the start of the 'HeaderData'.
 -}
 
+
+-- Can we let the user specify the parser they would like to use?
+-- Or do we parse the whole thing into an intermediate format?
+--
+
+
 data HeaderData = HeaderData
-    { simpleFormat :: SimpleFormat
-      -- ^ SIMPLE
-    , bitPixFormat :: BitPixFormat
-      -- ^ BITPIX
-    , axes :: [Axis]
-      -- ^ Axes metadata
-    , objectIdentifier :: StringValue
-      -- ^ OBJECT
-    , observationDate :: StringValue
-      -- ^ DATE
-    , originIdentifier :: StringValue
-      -- ^ OBJECT
-    , telescopeIdentifier :: StringValue
-      -- ^ TELESCOP
-    , instrumentIdentifier :: StringValue
-      -- ^ INSTRUME
-    , observerIdentifier :: StringValue
-      -- ^ OBSERVER
-    , authorIdentifier :: StringValue
-      -- ^ CREATOR
-    , referenceString :: StringValue
-      -- ^ REFERENC
+    { simple :: SimpleFormat
+    , bitpix :: BitPixFormat
+    , naxes :: NAxes
     }
 
-instance Default HeaderData where
-    def = HeaderData NonConformant EightBitInt []
-        (def :: StringValue) (def :: StringValue) (def :: StringValue)
-        (def :: StringValue) (def :: StringValue) (def :: StringValue)
-        (def :: StringValue) (def :: StringValue)
+
+newtype Keyword = Keyword Text
+    deriving (Show, Eq, Ord, IsString)
+
+data Value
+    = Integer Int
+    | String Text
+    | Float Float
+    deriving (Show, Eq)
+    -- = Text Text
+    -- | Int Int
+
+type RawHeaderData = (Map Keyword Value)
+    
+
+
+
+-- data HeaderData = HeaderData
+    -- { simpleFormat :: SimpleFormat
+    --   -- ^ SIMPLE
+    -- , bitPixFormat :: BitPixFormat
+    --   -- ^ BITPIX
+    -- , axes :: [Axis]
+    --   -- ^ Axes metadata
+    -- , objectIdentifier :: Text
+    --   -- ^ OBJECT
+    -- , observationDate :: Text
+    --   -- ^ DATE
+    -- , originIdentifier :: Text
+    --   -- ^ OBJECT
+    -- , telescopeIdentifier :: Text
+    --   -- ^ TELESCOP
+    -- , instrumentIdentifier :: Text
+    --   -- ^ INSTRUME
+    -- , observerIdentifier :: Text
+    --   -- ^ OBSERVER
+    -- , authorIdentifier :: Text
+    --   -- ^ CREATOR
+    -- , referenceString :: Text
+    --   -- ^ REFERENC
+    -- }
+
+-- instance Default HeaderData where
+--     def = HeaderData NonConformant EightBitInt []
+        -- "" "" ""
+        -- "" "" ""
+        -- "" ""
 
 {-| The 'HeaderDataUnit' is the full HDU. Both the header information is
     encoded alongside the 'Axis' payload.

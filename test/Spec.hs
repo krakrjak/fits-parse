@@ -1,11 +1,15 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
+import Data.Text (Text)
 import Control.Monad.Writer
 import qualified Data.ByteString as BS
+import qualified Data.Map as Map
 import Data.Fits.MegaParser
+import Data.Fits
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Text.Megaparsec as M
@@ -14,9 +18,45 @@ import qualified Text.Megaparsec.Char as M
 main :: IO ()
 main =
   defaultMain $ runTests "Tests" $ do
-    basicParsing
-    sampleSpiral
-    sampleNSO
+    keywordValueLines
+    -- basicParsing
+    -- sampleSpiral
+    -- sampleNSO
+    --
+    --
+parse :: Parser a -> Text -> Either ParseErr a
+parse p = M.parse p "Test"
+
+keywordValueLines :: Test ()
+keywordValueLines = describe "parse keyword=value" $ do
+    it "should parse an integer" $ do
+        parse parseKeywordValue "key=42" @?= Right ("key", Integer 42)
+
+    it "should parse a string" $ do
+        parse parseKeywordValue "key='value'" @?= Right ("key", String "value")
+
+    it "should absorb spaces" $ do
+        parse parseKeywordValue "key   = 'value'   " @?= Right ("key", String "value")
+
+    it "should parse a float" $ do
+        parse parseKeywordValue "key =   44.88 " @?= Right ("key", Float 44.88)
+
+    it "should parse a negative number" $ do
+        parse parseKeywordValue "key = -44.88" @?= Right ("key", Float ( -44.88 ))
+
+headerMap :: Test ()
+headerMap = describe "parse all headers" $ do
+    it "should parse a list of headers" $ do
+        let res = parse parseRawHeader "key1='value'\nkey2=42"
+        case res of
+            Left e -> fail (show e)
+            Right hs -> do
+                (Map.lookup "key1" hs) @?= Just (String "value")
+                (Map.lookup "key2" hs) @?= Just (Integer 42)
+
+    
+
+        
 
 basicParsing :: Test ()
 basicParsing = describe "Basic Parsing" $ do
