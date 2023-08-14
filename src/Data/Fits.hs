@@ -22,9 +22,10 @@ module Data.Fits
       -- * Main data types
     , Keyword(..)
     , Value(..)
-    , RawHeaderData(..)
+    , LogicalConstant(..)
+    , SizeKeywords(..)
+    , Header
     , HeaderDataUnit(..)
-    , HeaderData(..)
     , BitPixFormat(..)
     , Pix(..)
 
@@ -102,13 +103,14 @@ hduBlockSize = hduRecordLength * hduMaxRecords
     is supported.
 -}
 data SimpleFormat = Conformant
+    deriving (Eq, Show)
                     -- ^ Value of SIMPLE=T in the header. /supported/
                     -- NonConformat
                     -- ^ Value of SIMPLE=F in the header. /unsupported/
 
 -- | 'NAxes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes
 newtype NAxes = NAxes { axes :: [Natural] }
-    deriving (Semigroup, Monoid)
+    deriving (Semigroup, Monoid, Show, Eq)
 
 -- | The default instance for 'Axis' is NAXIS=0 with zero elements.
 instance Default NAxes where
@@ -127,14 +129,15 @@ data BitPixFormat =
     | SixtyFourBitInt   -- ^ BITPIX = 64; two's complement binary integer of 64 bits
     | ThirtyTwoBitFloat -- ^ BITPIX = -32; IEEE single precision floating point of 32 bits
     | SixtyFourBitFloat -- ^ BITPIX = -64; IEEE double precision floating point of 64 bits
+    deriving (Eq)
 
 instance Show BitPixFormat where
-        show EightBitInt       = "8 bit unsigned integer"
-        show SixteenBitInt     = "16 bit signed integer"
-        show ThirtyTwoBitInt   = "32 bit signed integer"
-        show SixtyFourBitInt   = "64 bit signed interger"
-        show ThirtyTwoBitFloat = "32 bit IEEE single precision float"
-        show SixtyFourBitFloat = "64 bit IEEE double precision float"
+    show EightBitInt       = "8 bit unsigned integer"
+    show SixteenBitInt     = "16 bit signed integer"
+    show ThirtyTwoBitInt   = "32 bit signed integer"
+    show SixtyFourBitInt   = "64 bit signed interger"
+    show ThirtyTwoBitFloat = "32 bit IEEE single precision float"
+    show SixtyFourBitFloat = "64 bit IEEE double precision float"
 
 {-| This utility function can be used to get the word count for data in an
     HDU.
@@ -254,14 +257,12 @@ parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
 
 -- Can we let the user specify the parser they would like to use?
 -- Or do we parse the whole thing into an intermediate format?
---
 
 
-data HeaderData = HeaderData
-    { simple :: SimpleFormat
-    , bitpix :: BitPixFormat
+data SizeKeywords = SizeKeywords
+    { bitpix :: BitPixFormat
     , naxes :: NAxes
-    }
+    } deriving (Show, Eq)
 
 
 newtype Keyword = Keyword Text
@@ -271,11 +272,15 @@ data Value
     = Integer Int
     | String Text
     | Float Float
+    | Logic LogicalConstant
+    deriving (Show, Eq)
+
+data LogicalConstant = T
     deriving (Show, Eq)
     -- = Text Text
     -- | Int Int
 
-type RawHeaderData = (Map Keyword Value)
+type Header = Map Keyword Value
     
 
 
@@ -315,7 +320,8 @@ type RawHeaderData = (Map Keyword Value)
     encoded alongside the 'Axis' payload.
 -}
 data HeaderDataUnit = HeaderDataUnit
-    { headerData :: HeaderData
+    { header :: Header
+    , size :: SizeKeywords
       -- ^ Just the header part of the HDU
     , payloadData :: ByteString
       -- ^ The actual data payload

@@ -27,7 +27,7 @@ import qualified Data.Map as Map
 
 -- explicit imports
 import Control.Applicative ( (<$>) )
-import Control.Monad ( void )
+import Control.Monad ( void, foldM )
 import Numeric.Natural ( Natural )
 import Data.ByteString ( ByteString )
 import Data.Text ( Text )
@@ -59,10 +59,10 @@ data DataUnitValues
 
 
 
-parseRawHeader :: Parser RawHeaderData
-parseRawHeader = do
-    pairs <- M.manyTill ( parseKeywordValue <* M.newline ) (M.string "END")
-    consumeDead
+
+parseHeader :: Parser Header
+parseHeader = do
+    pairs <- M.manyTill ( parseKeywordValue <* M.space ) (M.string' "end")
     pure $ Map.fromList pairs
 
 parseKeywordValue :: Parser (Keyword, Value)
@@ -79,72 +79,83 @@ parseValue :: Parser Value
 parseValue = 
     (M.try $ Float <$> MCL.signed M.space MCL.float) <|>
     (M.try $ Integer <$> MCL.signed M.space MCL.decimal) <|>
-    (String <$> parseStringValue)
+    (String <$> parseStringValue) <|>
+    (Logic <$> parseLogic)
+
+parseLogic :: Parser LogicalConstant
+parseLogic = do
+    M.string' "T"
+    pure T
 
 parseText :: Parser Text
 parseText = do
     T.pack <$> M.many M.alphaNumChar
 
 
-headerBlockParse :: Parser HeaderData
-headerBlockParse = do
-    -- TODO: Parse other sections of the neader for god's sake
-    --  HISTORY and COMMENT along with CONTINUE handling is missing
-    (simple, bitpix, axes, pEnd) <-
-        runPermutation $
-            (,,,)
-                <$> toPermutation (parseSimple <?> "simple")
-                <*> toPermutation (parseBitPix <?> "bitpix")
-                <*> toPermutation ((parseAxisCount >>= parseNaxes) <?> "axis parsing")
-                -- <*> toPermutationWithDefault 0 (parseBzero <?> "bzero")
-                -- <*> toPermutationWithDefault 0 (parseBscale <?> "bscale")
-                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseReference <?> "reference")
-                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseObserver <?> "observer")
-                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseInstrument <?> "instrument")
-                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseTelescope <?> "telescope")
-                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseObject <?> "object")
-                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseCreator <?> "creator")
-                -- <*> toPermutationWithDefault (StringValue NullString Nothing) (parseDate <?> "date")
-                <*> toPermutation (parseEnd <?> "end")
-    return
-        HeaderData
-            { simple = simple
-            , bitpix = bitpix
-            , naxes = axes
-            }
+-- | We don't parse simple here, because it isn't required on all HDUs
+parseSizeKeywords :: Header -> Parser SizeKeywords
+parseSizeKeywords ks = do
+    bp <- parseBitPix ks
+    ax <- parseNaxes ks
+    return $ SizeKeywords { bitpix = bp, naxes = ax }
 
-parseSimple :: Parser SimpleFormat
-parseSimple =
-    M.string' "simple"
-        >> parseEquals
-        >> (conformParse >> consumeDead >> return Conformant)
-        -- <|> (nonConformParse >> consumeDead >> return NonConformant)
-  where
-    conformParse = M.char' 't'
-    -- nonConformParse = M.anySingle
+requireKeyword :: Keyword -> Header -> Parser Value
+requireKeyword k ks = do
+    case Map.lookup k ks of
+      Nothing -> fail $ "Missing: " <> show k
+      Just v -> return v
+            
 
-parseEquals :: Parser ()
-parseEquals = M.space >> M.char '=' >> M.space
+parseSimple :: Header -> Parser SimpleFormat
+parseSimple ks = do
+    v <- requireKeyword "SIMPLE" ks
+    case v of
+      Logic T -> return Conformant
+      _ -> fail "Invalid Keyword: SIMPLE"
 
-parseBitPix :: Parser BitPixFormat
-parseBitPix  = M.string' "bitpix" >> parseEquals
-    >> ((M.chunk "8" >> consumeDead >> return EightBitInt)
-    <|> (M.chunk "16" >> consumeDead >> return SixteenBitInt)
-    <|> (M.chunk "32" >> consumeDead >> return ThirtyTwoBitInt)
-    <|> (M.chunk "64" >> consumeDead >> return SixtyFourBitInt)
-    <|> (M.chunk "-32" >> consumeDead >> return ThirtyTwoBitFloat)
-    <|> (M.chunk "-64" >> consumeDead >> return SixtyFourBitFloat))
+
+parseBitPix :: Header -> Parser BitPixFormat
+parseBitPix ks = do
+    bpn <- requireKeyword "BITPIX" ks
+    toBitpix bpn
+    where
+      toBitpix (Integer 8) = return EightBitInt
+      toBitpix (Integer 16) = return SixteenBitInt
+      toBitpix (Integer 32) = return ThirtyTwoBitInt
+      toBitpix (Integer 64) = return SixtyFourBitInt
+      toBitpix (Integer (-32)) = return ThirtyTwoBitFloat
+      toBitpix (Integer (-64)) = return SixtyFourBitFloat
+      toBitpix _ = fail "Invalid BITPIX header"
 
 parseAxisCount :: Parser Natural
 parseAxisCount = M.string' "naxis" >> parseEquals >> parseNatural
 
-parseNaxes :: Natural -> Parser NAxes
-parseNaxes n | n == 0 = return (NAxes [])
-parseNaxes n = do
-    axisNum <- M.string' "naxis" >> parseNatural
-    elemCount <- parseEquals >> parseNatural
-    rest <- axes <$> parseNaxes (n - 1)
-    return $ NAxes $ elemCount : rest
+
+
+requireNaxis :: Header -> Parser Int
+requireNaxis ks = do
+    v <- requireKeyword "NAXIS" ks
+    case v of
+      Integer n -> return n
+      _ -> fail "Invalid NAXIS header"
+
+
+parseNaxes :: Header -> Parser NAxes
+parseNaxes ks = do
+    n <- requireNaxis ks
+    as <- mapM naxisn (keywords n)
+    return $ NAxes as
+
+    where
+      keywords :: Int -> [Keyword]
+      keywords n = fmap (Keyword . ("NAXIS"<>) . T.pack . show) [1..n]
+
+      naxisn :: Keyword -> Parser Natural
+      naxisn k = do
+        n <- requireKeyword k ks
+        case n of
+          (Integer n) -> return (fromIntegral n)
+          _ -> fail $ "Invalid: " <> show k
 
 parseBzero :: Parser Int
 parseBzero = M.string' "bzero" >> parseEquals >> parseInteger
@@ -182,6 +193,9 @@ consumeDead = M.space >> skipEmpty
 parseEnd :: Parser ()
 parseEnd = M.string' "end" >> M.space <* M.eof
 
+parseEquals :: Parser ()
+parseEquals = M.space >> M.char '=' >> M.space
+
 parseNatural :: Parser Natural
 parseNatural = do
     v <- MCL.decimal
@@ -205,32 +219,32 @@ parseStringValue = do
     return (T.pack ls)
     where quote = '\''
 
-countHeaderDataUnits :: ByteString -> IO Natural
-countHeaderDataUnits bs = fromIntegral . length <$> getAllHDUs bs
+-- countHeaderDataUnits :: ByteString -> IO Natural
+-- countHeaderDataUnits bs = fromIntegral . length <$> getAllHDUs bs
 
--- TODO: make the recursive case work. Currently limited to one HDU.
--- The current issue is that when the parser fails on an HDU parse, it
--- blows them all up instead of accepting the valid parsings.
-getAllHDUs :: ByteString -> IO [HeaderDataUnit]
-getAllHDUs bs = do
-    (hdu, rest) <- getOneHDU bs
-    return [hdu]
+-- -- TODO: make the recursive case work. Currently limited to one HDU.
+-- -- The current issue is that when the parser fails on an HDU parse, it
+-- -- blows them all up instead of accepting the valid parsings.
+-- getAllHDUs :: ByteString -> IO [HeaderDataUnit]
+-- getAllHDUs bs = do
+--     (hdu, rest) <- getOneHDU bs
+--     return [hdu]
+--
+-- --    if BS.length rest < hduBlockSize then return [hdu] else return [hdu]
+-- getOneHDU :: ByteString -> IO (HeaderDataUnit, ByteString)
+-- getOneHDU bs =
+--     if isAscii header
+--       then
+--         case M.runParser headerBlockParse "FITS" (TE.decodeUtf8 header) of
+--           Right mainHeader -> do
+--             let (dataUnit, remainder) = BS.splitAt (fromIntegral $ dataSize mainHeader) rest
+--             return (HeaderDataUnit mainHeader dataUnit, remainder)
+--           Left e -> let err = M.errorBundlePretty e in error err
+--       else error "Header data is not ASCII. Please Check your input file and try again"
+--   where
+--     (header, rest) = BS.splitAt hduBlockSize bs
 
---    if BS.length rest < hduBlockSize then return [hdu] else return [hdu]
-getOneHDU :: ByteString -> IO (HeaderDataUnit, ByteString)
-getOneHDU bs =
-    if isAscii header
-      then
-        case M.runParser headerBlockParse "FITS" (TE.decodeUtf8 header) of
-          Right mainHeader -> do
-            let (dataUnit, remainder) = BS.splitAt (fromIntegral $ dataSize mainHeader) rest
-            return (HeaderDataUnit mainHeader dataUnit, remainder)
-          Left e -> let err = M.errorBundlePretty e in error err
-      else error "Header data is not ASCII. Please Check your input file and try again"
-  where
-    (header, rest) = BS.splitAt hduBlockSize bs
-
-dataSize :: HeaderData -> Natural
+dataSize :: SizeKeywords -> Natural
 dataSize h = wordSize * wordCount
   where
     -- paddedsize
