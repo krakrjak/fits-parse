@@ -60,4 +60,6 @@ tests:
     - fits-parse
     - tasty
     - tasty-hunit
+    - megaparsec
+    - mtl
 
