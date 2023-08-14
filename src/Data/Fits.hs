@@ -12,6 +12,7 @@ Definitions for the data types needed to parse an HDU in a FITS block.
 {-# LANGUAGE PartialTypeSignatures, DataKinds, ExistentialQuantification
   , ScopedTypeVariables, GADTs
   , GeneralizedNewtypeDeriving
+  , OverloadedRecordDot
   , OverloadedStrings, TypeOperators, TypeFamilies #-}
 module Data.Fits
     ( -- * Data payload functions
@@ -20,17 +21,18 @@ module Data.Fits
     , pixsUnwrapD
 
       -- * Main data types
+    , HeaderDataUnit(..)
+    , Pix(..)
+
+      -- ** Header Data Types
+    , Header
     , Keyword(..)
     , Value(..)
     , LogicalConstant(..)
     , SizeKeywords(..)
-    , Header
-    , HeaderDataUnit(..)
-    , BitPixFormat(..)
-    , Pix(..)
-
-      -- ** Header Data Types
+    , Comment(..)
     , SimpleFormat(..)
+    , BitPixFormat(..)
     , NAxes(..)
 
       -- * Utility
@@ -237,33 +239,23 @@ getPixs c bpf = do
 parsePix :: Int -> BitPixFormat -> BL.ByteString -> IO [Pix]
 parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
 
--- {- `pixDimsByCol` takes a list of Axis and gives a column-row major list of
---     axes dimensions.
--- -}
--- pixDimsByCol :: [Axis] -> [Int]
--- pixDimsByCol = map axisElementCount
---
--- {- `pixDimsByRow` takes a list of Axis and gives a row-column major list of
---     axes dimensions.
--- -}
--- pixDimsByRow :: [Axis] -> [Int]
--- pixDimsByRow = reverse . pixDimsByCol
+{- `pixDimsByCol` takes a list of Axis and gives a column-row major list of
+    axes dimensions.
+-}
+pixDimsByCol :: NAxes -> [Natural]
+pixDimsByCol (NAxes as) = as
+
+{- `pixDimsByRow` takes a list of Axis and gives a row-column major list of
+    axes dimensions.
+-}
+pixDimsByRow :: NAxes -> [Natural]
+pixDimsByRow = reverse . pixDimsByCol
 
 {-| The header part of the HDU is vital carrying not only authorship
     metadata, but also specifying how to make sense of the binary payload
     that starts 2,880 bytes after the start of the 'HeaderData'.
 -}
-
-
--- Can we let the user specify the parser they would like to use?
--- Or do we parse the whole thing into an intermediate format?
-
-
-data SizeKeywords = SizeKeywords
-    { bitpix :: BitPixFormat
-    , naxes :: NAxes
-    } deriving (Show, Eq)
-
+type Header = Map Keyword Value
 
 newtype Keyword = Keyword Text
     deriving (Show, Eq, Ord, IsString)
@@ -277,13 +269,18 @@ data Value
 
 data LogicalConstant = T
     deriving (Show, Eq)
-    -- = Text Text
-    -- | Int Int
-
-type Header = Map Keyword Value
-    
 
 
+{-| When we load a header, we parse the BITPIX and NAXIS(N) keywords so we
+ -  can know how long the data array is
+-}
+data SizeKeywords = SizeKeywords
+    { bitpix :: BitPixFormat
+    , naxes :: NAxes
+    } deriving (Show, Eq)
+
+newtype Comment = Comment Text
+    deriving (Show, Eq, Ord, IsString)
 
 -- data HeaderData = HeaderData
     -- { simpleFormat :: SimpleFormat
@@ -317,12 +314,16 @@ type Header = Map Keyword Value
         -- "" ""
 
 {-| The 'HeaderDataUnit' is the full HDU. Both the header information is
-    encoded alongside the 'Axis' payload.
+    encoded alongside the data payload.
 -}
 data HeaderDataUnit = HeaderDataUnit
-    { header :: Header
+    { 
+    -- ^ All keywords in the header
+      header :: Header
+
+    -- ^ Required size headers
     , size :: SizeKeywords
-      -- ^ Just the header part of the HDU
-    , payloadData :: ByteString
+
       -- ^ The actual data payload
+    , payloadData :: ByteString
     }

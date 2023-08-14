@@ -10,6 +10,7 @@ import Control.Monad.Writer
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Fits.MegaParser
 import Data.Fits
 import Test.Tasty
@@ -23,12 +24,12 @@ main =
   defaultMain $ runTests "Tests" $ do
     basicParsing
     keywordValueLines
+    fullRecord
     headerMap
     requiredHeaders
-    -- sampleSpiral
-    -- sampleNSO
-    --
-    --
+    sampleSpiral
+    sampleNSO
+
 parse :: Parser a -> Text -> IO a
 parse p inp =
     case M.parse p "Test" inp of
@@ -36,13 +37,30 @@ parse p inp =
         Right v -> pure v
 
 keywords :: [Text] -> Text
-keywords ts = (T.intercalate "\n" ts) <> "\nEND"
+keywords ts = mconcat (map pad ts) <> "END"
+
+pad :: Text -> Text
+pad m =
+  let n = 80 - T.length m
+  in m <> T.replicate n " "
+
+
+basicParsing :: Test ()
+basicParsing = describe "Basic Parsing" $ do
+  it "should parse a string" $ do
+    res <- parse parseStringValue "'hello there' "
+    res @?= "hello there"
+
+  it "should parse a number value" $ do
+    res <- parse parseValue "42 "
+    res @?= Integer 42
+
 
 
 keywordValueLines :: Test ()
 keywordValueLines = describe "parse keyword=value" $ do
     it "should parse an integer" $ do
-        res <- parse parseKeywordValue "KEY=42"
+        res <- parse parseKeywordValue "KEY=42 "
         res @?= ("KEY", Integer 42)
 
     it "should parse a string" $ do
@@ -65,17 +83,43 @@ keywordValueLines = describe "parse keyword=value" $ do
         res <- parse parseKeywordValue "KEY=     T " 
         res @?= ("KEY", Logic T)
 
+    it "should ignore comments" $ do
+        res <- parse parseKeywordValue "SIMPLE  =                    T / conforms to FITS standard" 
+        res @?= ("SIMPLE", Logic T)
+
+fullRecord :: Test ()
+fullRecord = describe "parseKeywordRecord" $ do
+  it "should parse an 80 character record" $ do
+    res <- parse parseKeywordRecord (keywords ["KEYWORD = 12345"])
+    res @?= ("KEYWORD", Integer 12345)
+
+  it "should parse an a record and comment" $ do
+    res <- parse parseKeywordRecord (keywords ["KEYWORD = 12345 / this is a comment"])
+    res @?= ("KEYWORD", Integer 12345)
+
+  it "should parse a record, comment, followed by next keyword" $ do
+      res <- parse parseKeywordRecord $ keywords ["SIMPLE  =                    T / conforms to FITS standard"]
+      res @?= ("SIMPLE", Logic T)
+
+
+
 headerMap :: Test ()
-headerMap = describe "parse all headers" $ do
+headerMap = describe "full header" $ do
     it "should parse single header" $ do
-        res <- parse parseHeader "KEY1='value'\nEND"
+        res <- parse parseHeader $ keywords ["KEY1='value'"]
         Map.size res @?= 1
         Map.lookup "KEY1" res @?= Just (String "value")
 
     it "should parse multiple headers " $ do
-        res <- parse parseHeader "KEY1='value'\nKEY2=  23 \nEND"
+        res <- parse parseHeader $ keywords ["KEY1='value'", "KEY2=  23"]
         Map.size res @?= 2
         Map.lookup "KEY2" res @?= Just (Integer 23)
+
+    it "should ignore comments" $ do
+        res <- parse parseHeader $ keywords ["KEY1='value' / this is a comment"]
+        Map.size res @?= 1
+        Map.lookup "KEY1" res @?= Just (String "value")
+
 
 requiredHeaders :: Test ()
 requiredHeaders = describe "required headers" $ do
@@ -95,31 +139,31 @@ requiredHeaders = describe "required headers" $ do
       res <- parse (parseSizeKeywords =<< parseHeader) $ keywords ["NAXIS=2", "NAXIS1=10", "NAXIS2=20", "BITPIX = -32"]
       res.bitpix @?= ThirtyTwoBitFloat
       res.naxes @?= NAxes [10,20]
-        
 
-        
 
-basicParsing :: Test ()
-basicParsing = describe "Basic Parsing" $ do
-  it "should parse simple bzero header" $ do
-    let res = M.runParser parseBzero "Test" "bzero=3"
-    res @?= Right 3
+sampleSpiral :: Test ()
+sampleSpiral =
+  describe "Spiral Sample FITS Parse" $ do
+    it "should parse" $ do
+      bs <- BS.readFile "./fits_files/Spiral_2_30_0_300_10_0_NoGrad.fits"
+      (hdu, _) <- getOneHDU bs
+      hdu.size.bitpix @?= ThirtyTwoBitFloat
+      hdu.size.naxes @?= NAxes [621, 621]
+      -- TODO: what should the length be?
+      -- BS.length (payloadData hdu) @?= 32*621*621
+      -- print (BS.length (payloadData hdu))
+      -- error "NOPE"
+      return ()
 
--- sampleSpiral :: Test ()
--- sampleSpiral =
---   describe "Spiral Sample FITS Parse" $ do
---     it "should parse" $ do
---       bs <- BS.readFile "./fits_files/Spiral_2_30_0_300_10_0_NoGrad.fits"
---       hdus <- getAllHDUs bs
---       length hdus @?= 1
---
--- sampleNSO :: Test ()
--- sampleNSO = do
---   describe "NSO Sample FITS Parse" $ do
---     it "should parse" $ do
---       bs <- BS.readFile "./fits_files/nso_dkist.fits"
---       hdus <- getAllHDUs bs
---       length hdus @?= 1
+
+
+sampleNSO :: Test ()
+sampleNSO = do
+  describe "NSO Sample FITS Parse" $ do
+    it "should parse" $ do
+      bs <- BS.readFile "./fits_files/nso_dkist.fits"
+      x <- getOneHDU bs
+      print "OK"
 
 -- Test monad with describe/it
 newtype Test a = Test {runTest :: Writer [TestTree] a}
