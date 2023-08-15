@@ -17,12 +17,14 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Fits.MegaParser
 import Data.Fits
+import qualified Data.Fits as Fits
 import Data.List ( unfoldr )
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as M
 import Control.Exception (Exception(displayException))
+import GHC.RTS.Flags (MiscFlags(numIoWorkerThreads))
 
 main :: IO ()
 main =
@@ -37,7 +39,7 @@ main =
     requiredHeaders
     sampleSpiral
     sampleNSOHeaders
-    -- sampleNSO
+    sampleNSO
 
 parse :: Parser a -> ByteString -> IO a
 parse p inp =
@@ -108,6 +110,10 @@ keywordValueLines = describe "parse keyword=value" $ do
         res <- parse parseKeywordValue "SIMPLE  =                    T / conforms to FITS standard" 
         res @?= ("SIMPLE", Logic T)
 
+    it "should strip trailing spaces from strings" $ do
+      res <- parse parseKeywordValue "INSTRUME= 'VISP    '"
+      res @?= ("INSTRUME", String "VISP")
+
 fullRecord :: Test ()
 fullRecord = describe "parseKeywordRecord" $ do
     it "should parse an 80 character record" $ do
@@ -128,7 +134,7 @@ fullRecord = describe "parseKeywordRecord" $ do
 
     it "should handle extension" $ do
       res <- parse parseKeywordRecord $ keywords ["XTENSION= 'IMAGE   '"]
-      res @?= ("XTENSION", String "IMAGE   ")
+      res @?= ("XTENSION", String "IMAGE")
 
 
 fullRecordLine :: Test ()
@@ -175,30 +181,30 @@ continue = describe "Continue Keyword" $ do
               ]
 
       res <- parse parseHeader $ keywords h
-      Map.lookup "CAL_URL" res @?= Just (String "https://docs.dkist.nso.edu/projects/visp/en/v2.0.1/l0_to_l1_visp.html")
+      Fits.lookup "CAL_URL" res @?= Just (String "https://docs.dkist.nso.edu/projects/visp/en/v2.0.1/l0_to_l1_visp.html")
 
 
 headerMap :: Test ()
 headerMap = describe "full header" $ do
     it "should parse single header" $ do
         res <- parse parseHeader $ keywords ["KEY1='value'"]
-        Map.size res @?= 1
-        Map.lookup "KEY1" res @?= Just (String "value")
+        Fits.size res @?= 1
+        Fits.lookup "KEY1" res @?= Just (String "value")
 
     it "should parse multiple headers " $ do
         res <- parse parseHeader $ keywords ["KEY1='value'", "KEY2=  23"]
-        Map.size res @?= 2
-        Map.lookup "KEY2" res @?= Just (Integer 23)
+        Fits.size res @?= 2
+        Fits.lookup "KEY2" res @?= Just (Integer 23)
 
     it "should ignore comments" $ do
         res <- parse parseHeader $ keywords ["KEY1='value' / this is a comment"]
-        Map.size res @?= 1
-        Map.lookup "KEY1" res @?= Just (String "value")
+        Fits.size res @?= 1
+        Fits.lookup "KEY1" res @?= Just (String "value")
 
     it "should handle xtension" $ do
         res <- parse parseHeader $ keywords ["XTENSION= 'IMAGE   '"]
-        Map.size res @?= 1
-        Map.lookup "XTENSION" res @?= Just (String "IMAGE   ")
+        Fits.size res @?= 1
+        Fits.lookup "XTENSION" res @?= Just (String "IMAGE")
 
 
 requiredHeaders :: Test ()
@@ -220,20 +226,32 @@ requiredHeaders = describe "required headers" $ do
       res.bitpix @?= ThirtyTwoBitFloat
       res.naxes @?= NAxes [10,20]
 
+    it "should parse NSO NAxes (100, 998, 1)" $ do
+
+      let h = [ "NAXIS   =                    3                                                  "
+              , "NAXIS1  =                  100 / [pix]                                          "
+              , "NAXIS2  =                  998 / [pix]                                          "
+              , "NAXIS3  =                    1 / [pix]                                          "
+              ]
+      res <- parse (parseNaxes =<< parseHeader) $ keywords h
+      res @?= NAxes [100,998,1]
+
 
 sampleSpiral :: Test ()
 sampleSpiral =
   describe "Spiral Sample FITS Parse" $ do
     it "should parse" $ do
+      let fileSizeOnDisk = 1545444
       bs <- BS.readFile "./fits_files/Spiral_2_30_0_300_10_0_NoGrad.fits"
       hdu <- eitherFail $ getOneHDU bs
       hdu.size.bitpix @?= ThirtyTwoBitFloat
       hdu.size.naxes @?= NAxes [621, 621]
-      -- TODO: what should the length be?
-      -- BS.length (payloadData hdu) @?= 32*621*621
-      -- print (BS.length (payloadData hdu))
-      -- error "NOPE"
-      return ()
+
+      let payloadSize = BS.length hdu.payloadData
+
+      -- Make sure we took the right number of bytes out of the file
+      fromIntegral (dataSize hdu.size) @?= payloadSize
+      payloadSize @?= fileSizeOnDisk - hduBlockSize
 
 
 sampleNSOHeaders :: Test ()
@@ -248,17 +266,21 @@ sampleNSOHeaders = do
               , "COMMENT     the FITS WCS keys describing the world coordinates of the array.    "
               ]
       m <- parse parseHeader $ keywords h
-      Map.size m @?= 1
+      Fits.size m @?= 1
 
 
     describe "sample header file" $ do
       bs <- liftIO $ BS.readFile "./fits_files/nso_dkist_headers.txt"
       let ts = filter notContinue $ T.lines $ TE.decodeUtf8 bs
 
-      forM_ ( zip [1..] ts ) $ \(n, t) -> do
-        it ("nso_dkist_headers[" <> show n <> "]") $ do
+      it "should parse all headers" $ do
+        forM_ ( zip [1..] ts ) $ \(n, t) -> do
+          -- print ("Header", n, t)
           m <- parse parseHeader $ TE.encodeUtf8 $ t <> "END"
           pure ()
+
+  
+
   where
     notContinue = not . T.isPrefixOf "CONTINUE"
 
@@ -272,16 +294,51 @@ test = do
       putStrLn $ T.unpack t
       m <- parse parseHeader $ TE.encodeUtf8 $ t <> "END"
       pure ()
-        -- print m
 
 
 sampleNSO :: Test ()
 sampleNSO = do
   describe "NSO Sample FITS Parse" $ do
-    it "should parse" $ do
-      bs <- BS.readFile "./fits_files/nso_dkist.fits"
+    bs <- liftIO $ BS.readFile "./fits_files/nso_dkist.fits"
+    it "should parse empty primary header" $ do
+      h0 <- eitherFail $ getOneHDU bs
+
+      -- first header doesn't havce any data
+      dataSize h0.size @?= 0
+      BS.length h0.payloadData @?= 0
+      return ()
+      -- length hdus @?= 2
+      --
+    it "should parse both HDUs" $ do
       hdus <- eitherFail $ getAllHDUs bs
       length hdus @?= 2
+
+      [_, h2] <- pure hdus
+
+      Fits.lookup "INSTRUME" h2.header @?= Just (String "VISP")
+      Fits.lookup "NAXIS" h2.header @?= Just (Integer 3)
+
+      let sizeOnDisk = 161280
+
+      let numKeywords = Fits.size h2.header
+          numHeaderBlocks = ceiling $ fromIntegral numKeywords / fromIntegral hduMaxRecords
+          payloadLength = BS.length h2.payloadData
+
+      
+
+      numHeaderBlocks @?= 8
+
+      h2.size.bitpix @?= SixtyFourBitFloat
+      h2.size.naxes @?= NAxes [100, 998, 1]
+
+      
+
+      payloadLength @?= fromIntegral (dataSize (h2.size))
+
+
+      payloadLength @?= sizeOnDisk - (numHeaderBlocks * hduBlockSize)
+
+
 
 
 

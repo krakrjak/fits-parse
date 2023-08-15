@@ -12,7 +12,7 @@ Definitions for the data types needed to parse an HDU in a FITS block.
 {-# LANGUAGE PartialTypeSignatures, DataKinds, ExistentialQuantification
   , ScopedTypeVariables, GADTs
   , GeneralizedNewtypeDeriving
-  , OverloadedRecordDot
+  , OverloadedRecordDot, NoFieldSelectors
   , OverloadedStrings, TypeOperators, TypeFamilies #-}
 module Data.Fits
     ( -- * Data payload functions
@@ -25,7 +25,9 @@ module Data.Fits
     , Pix(..)
 
       -- ** Header Data Types
-    , Header
+    , Header(..)
+    , Data.Fits.lookup
+    , Data.Fits.size
     , Keyword(..)
     , Value(..)
     , LogicalConstant(..)
@@ -53,6 +55,7 @@ import qualified Data.Text as T
 ---- bytestring
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Map as Map
 
 import Data.String (IsString)
 
@@ -256,7 +259,14 @@ pixDimsByRow = reverse . pixDimsByCol
     metadata, but also specifying how to make sense of the binary payload
     that starts 2,880 bytes after the start of the 'HeaderData'.
 -}
-type Header = Map Keyword Value
+newtype Header = Header (Map Keyword Value)
+    deriving (Show, Eq)
+
+lookup :: Keyword -> Header -> Maybe Value
+lookup k (Header m) = Map.lookup k m
+
+size :: Header -> Int
+size (Header m) = Map.size m
 
 newtype Keyword = Keyword Text
     deriving (Show, Eq, Ord, IsString)

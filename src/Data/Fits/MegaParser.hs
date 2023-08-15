@@ -11,6 +11,7 @@ Parsing rules for an HDU in a FITS file.
 
 {-# OPTIONS_HADDOCK hide #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 module Data.Fits.MegaParser where
 
@@ -48,10 +49,11 @@ import Text.Megaparsec ( Parsec, ParseErrorBundle, (<|>), (<?>))
 import Control.Applicative.Permutations
 ---- base
 import Data.Proxy
+import Data.Maybe ( catMaybes, fromMaybe )
 
 -- local imports
 import Data.Fits
-import Data.Maybe ( catMaybes, fromMaybe )
+import qualified Data.Fits as Fits
 
 type Parser = Parsec Void ByteString
 type ParseErr = ParseErrorBundle ByteString Void
@@ -78,7 +80,7 @@ parseHeader :: Parser Header
 parseHeader = do
     pairs <- M.manyTill parseRecordLine (M.string' "end")
     M.space -- consume space padding all the way to the end of the next 2880 bytes header block
-    return $ Map.fromList $ catMaybes pairs
+    return $ Header $ Map.fromList $ catMaybes pairs
 
 parseRecordLine :: Parser (Maybe (Keyword, Value))
 parseRecordLine = do
@@ -159,7 +161,7 @@ parseSizeKeywords kvs = do
 
 requireKeyword :: Keyword -> Header -> Parser Value
 requireKeyword k kvs = do
-    case Map.lookup k kvs of
+    case Fits.lookup k kvs of
       Nothing -> fail $ "Missing: " <> show k
       Just v -> return v
             
@@ -260,7 +262,7 @@ parseStringValue = do
     -- within the quotes, but not leading spaces.
     ls <- M.between (M.char quote) (M.char quote) $ M.many $ M.anySingleBut quote
     consumeDead
-    return (toText ls)
+    return (T.stripEnd $ toText ls)
     where quote = toWord '\''
 
 parsePos :: Parser Int
@@ -291,10 +293,12 @@ getOneHDU bs = do
     first ParseError $ M.runParser parseHDU "FITS" bs
 
 dataSize :: SizeKeywords -> Natural
-dataSize h = size * count
+dataSize h = size h.bitpix * count h.naxes
   where
-    count = fromIntegral $ product $ axes $ naxes h
-    size = fromIntegral . bitPixToByteSize $ bitpix h
+    count (NAxes []) = 0
+    count (NAxes ax) = fromIntegral $ product ax
+    size = fromIntegral . bitPixToByteSize
+
 
 
 newtype FitsError
