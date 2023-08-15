@@ -51,6 +51,7 @@ import Data.Proxy
 
 -- local imports
 import Data.Fits
+import Data.Maybe ( catMaybes, fromMaybe )
 
 type Parser = Parsec Void ByteString
 type ParseErr = ParseErrorBundle ByteString Void
@@ -75,39 +76,47 @@ toText = TE.decodeUtf8 . BS.pack
 -- | Consumes ALL header blocks until end, then all remaining space
 parseHeader :: Parser Header
 parseHeader = do
-    pairs <- M.manyTill parseKeywordRecord (M.string' "end")
+    pairs <- M.manyTill parseRecordLine (M.string' "end")
     M.space -- consume space padding all the way to the end of the next 2880 bytes header block
-    return $ Map.fromList pairs
+    return $ Map.fromList $ catMaybes pairs
 
-parseKeywordValue :: Parser (Keyword, Value)
-parseKeywordValue = do
-    key <- parseKeyword
-    parseEquals
-    val <- parseValue
-    -- M.optional M.newline
-    -- M.optional M.eof
-    return (key, val)
+parseRecordLine :: Parser (Maybe (Keyword, Value))
+parseRecordLine = do
+    M.try $ Just <$> parseKeywordRecord
+    <|> Nothing <$ parseLineComment
+    <|> Nothing <$ M.string' (BS.replicate hduRecordLength (toWord ' '))
 
 parseKeywordRecord :: Parser (Keyword, Value)
 parseKeywordRecord = do
     start <- parsePos
     kv <- parseKeywordValue
     M.space
-    M.optional $ parseComment start
+    M.optional $ parseInlineComment start
     M.space
     return kv
 
-parsePos :: Parser Int
-parsePos = MP.unPos . MP.sourceColumn <$> M.getSourcePos
+parseKeywordValue :: Parser (Keyword, Value)
+parseKeywordValue = do
+    key <- parseKeyword
+    parseEquals
+    val <- parseValue
+    return (key, val)
 
-parseComment :: Int -> Parser Comment
-parseComment start = do
+parseInlineComment :: Int -> Parser Comment
+parseInlineComment start = do
     M.char $ toWord '/'
     M.space
     com <- parsePos
-    let end = start + 80
+    let end = start + hduRecordLength
     let rem = end - com
     c <- M.count rem M.anySingle
+    return $ Comment (toText c)
+
+parseLineComment :: Parser Comment
+parseLineComment = do
+    let keyword = "COMMENT " :: ByteString
+    M.string' keyword
+    c <- M.count (hduRecordLength - BS.length keyword) M.anySingle
     return $ Comment (toText c)
 
 -- | Anything but a space or equals
@@ -115,21 +124,30 @@ parseKeyword :: Parser Keyword
 parseKeyword = Keyword . toText <$> M.some (M.noneOf $ fmap toWord [' ', '='])
 
 parseValue :: Parser Value
-parseValue = 
+parseValue =
     -- try is required here because Megaparsec doesn't automatically backtrack if the parser consumes anything
     M.try (Float <$> MBL.signed M.space MBL.float)
     <|> M.try (Integer <$> MBL.signed M.space MBL.decimal)
-    <|> (String <$> parseStringValue)
     <|> (Logic <$> parseLogic)
+    <|> (String <$> parseStringContinue)
+    where
+      parseLogic :: Parser LogicalConstant
+      parseLogic = do
+          M.string' "T"
+          return T
 
-parseLogic :: Parser LogicalConstant
-parseLogic = do
-    M.string' "T"
-    pure T
+parseStringContinue :: Parser Text
+parseStringContinue = do
+    t <- parseStringValue
 
-parseText :: Parser Text
-parseText = do
-    toText <$> M.many M.alphaNumChar
+    mc <- M.optional $ do
+      M.string' "CONTINUE"
+      M.space
+      parseStringContinue
+
+    case mc of
+      Nothing -> return t
+      Just tc -> return $ T.dropWhileEnd (=='&') t <> tc
 
 
 -- | We don't parse simple here, because it isn't required on all HDUs
@@ -244,6 +262,9 @@ parseStringValue = do
     consumeDead
     return (toText ls)
     where quote = toWord '\''
+
+parsePos :: Parser Int
+parsePos = MP.unPos . MP.sourceColumn <$> M.getSourcePos
 
 
 parseHDU :: Parser HeaderDataUnit

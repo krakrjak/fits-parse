@@ -5,6 +5,8 @@
 
 module Main where
 
+import Debug.Trace
+
 import Data.Text ( Text )
 import Data.ByteString ( ByteString )
 import Control.Monad.Writer
@@ -15,6 +17,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Fits.MegaParser
 import Data.Fits
+import Data.List ( unfoldr )
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Text.Megaparsec as M
@@ -23,13 +26,17 @@ import Control.Exception (Exception(displayException))
 
 main :: IO ()
 main =
-  defaultMain $ runTests "Tests" $ do
+  testMain $ runTests "Tests" $ do
     basicParsing
     keywordValueLines
+    comments
+    continue
     fullRecord
+    fullRecordLine
     headerMap
     requiredHeaders
     sampleSpiral
+    sampleNSOHeaders
     -- sampleNSO
 
 parse :: Parser a -> ByteString -> IO a
@@ -103,23 +110,72 @@ keywordValueLines = describe "parse keyword=value" $ do
 
 fullRecord :: Test ()
 fullRecord = describe "parseKeywordRecord" $ do
-  it "should parse an 80 character record" $ do
-    res <- parse parseKeywordRecord (keywords ["KEYWORD = 12345"])
-    res @?= ("KEYWORD", Integer 12345)
+    it "should parse an 80 character record" $ do
+      res <- parse parseKeywordRecord (keywords ["KEYWORD = 12345"])
+      res @?= ("KEYWORD", Integer 12345)
 
-  it "should parse an a record and comment" $ do
-    res <- parse parseKeywordRecord (keywords ["KEYWORD = 12345 / this is a comment"])
-    res @?= ("KEYWORD", Integer 12345)
+    it "should parse an a record and comment" $ do
+      res <- parse parseKeywordRecord (keywords ["KEYWORD = 12345 / this is a comment"])
+      res @?= ("KEYWORD", Integer 12345)
 
-  it "should parse a record, comment, followed by next keyword" $ do
+    it "should parse a record, comment, followed by next keyword" $ do
       res <- parse parseKeywordRecord $ keywords ["SIMPLE  =                    T / conforms to FITS standard"]
       res @?= ("SIMPLE", Logic T)
 
-  it "should handle keyword symbols" $ do
-    res <- parse parseKeywordRecord $ keywords ["OBSGEO-X=   -5466045.256954942 / [m]"]
-    res @?= ("OBSGEO-X", Float (-5466045.256954942))
+    it "should handle keyword symbols" $ do
+      res <- parse parseKeywordRecord $ keywords ["OBSGEO-X=   -5466045.256954942 / [m]"]
+      res @?= ("OBSGEO-X", Float (-5466045.256954942))
+
+    it "should handle extension" $ do
+      res <- parse parseKeywordRecord $ keywords ["XTENSION= 'IMAGE   '"]
+      res @?= ("XTENSION", String "IMAGE   ")
 
 
+fullRecordLine :: Test ()
+fullRecordLine = describe "parseRecordLine" $ do
+    it "should parse a normal line" $ do
+      res <- parse parseRecordLine "NAXIS1  =                  100 / [pix]                                          END"
+      res @?= Just ("NAXIS1", Integer 100)
+
+    it "should parse a comment line" $ do
+      res <- parse parseRecordLine "COMMENT ------------------------------ Telescope -------------------------------END"
+      res @?= Nothing
+
+    it "should parse a blank line" $ do
+      res <- parse parseRecordLine $ keywords [" "]
+      res @?= Nothing
+
+
+comments :: Test ()
+comments = describe "Full-line comments" $ do
+    it "should parse full-line comments" $ do
+      res <- parse parseLineComment $ keywords ["COMMENT --------------------------- VISP Instrument ----------------------------"]
+      res @?= Comment "--------------------------- VISP Instrument ----------------------------"
+
+    it "should parse comments with text" $ do
+      res <- parse parseLineComment $ keywords ["COMMENT  Keys describing the pointing and operation of the telescope. Including "]
+      res @?= Comment " Keys describing the pointing and operation of the telescope. Including "
+
+    it "should parse blank comments" $ do
+      res <- parse parseLineComment $ keywords ["COMMENT                                                                         "]
+      res @?= Comment "                                                                        "
+
+
+continue :: Test ()
+continue = describe "Continue Keyword" $ do
+
+    it "should be picked up in parseValue" $ do
+      res <- parse parseValue $ keywords ["'hello&'CONTINUE '!'"]
+      res @?= String "hello!"
+
+
+    it "should combine continue into previous keyword" $ do
+      let h = [ "CAL_URL = 'https://docs.dkist.nso.edu/projects/visp/en/v2.0.1/l0_to_l1_visp.ht&'"
+              , "CONTINUE  'ml'                                                                  "
+              ]
+
+      res <- parse parseHeader $ keywords h
+      Map.lookup "CAL_URL" res @?= Just (String "https://docs.dkist.nso.edu/projects/visp/en/v2.0.1/l0_to_l1_visp.html")
 
 
 headerMap :: Test ()
@@ -138,6 +194,11 @@ headerMap = describe "full header" $ do
         res <- parse parseHeader $ keywords ["KEY1='value' / this is a comment"]
         Map.size res @?= 1
         Map.lookup "KEY1" res @?= Just (String "value")
+
+    it "should handle xtension" $ do
+        res <- parse parseHeader $ keywords ["XTENSION= 'IMAGE   '"]
+        Map.size res @?= 1
+        Map.lookup "XTENSION" res @?= Just (String "IMAGE   ")
 
 
 requiredHeaders :: Test ()
@@ -175,6 +236,44 @@ sampleSpiral =
       return ()
 
 
+sampleNSOHeaders :: Test ()
+sampleNSOHeaders = do
+  describe "NSO Stripped Headers" $ do
+
+    it "should parse comment block" $ do
+      let h = [ "DATASUM = '550335088'          / data unit checksum updated 2023-04-22T04:10:59 " 
+              , "   "
+              , "COMMENT ------------------------------ Telescope -------------------------------"
+              , "COMMENT  Keys describing the pointing and operation of the telescope. Including "
+              , "COMMENT     the FITS WCS keys describing the world coordinates of the array.    "
+              ]
+      m <- parse parseHeader $ keywords h
+      Map.size m @?= 1
+
+
+    describe "sample header file" $ do
+      bs <- liftIO $ BS.readFile "./fits_files/nso_dkist_headers.txt"
+      let ts = filter notContinue $ T.lines $ TE.decodeUtf8 bs
+
+      forM_ ( zip [1..] ts ) $ \(n, t) -> do
+        it ("nso_dkist_headers[" <> show n <> "]") $ do
+          m <- parse parseHeader $ TE.encodeUtf8 $ t <> "END"
+          pure ()
+  where
+    notContinue = not . T.isPrefixOf "CONTINUE"
+
+
+test :: IO ()
+test = do
+    bs <- liftIO $ BS.readFile "./fits_files/nso_dkist_headers.txt"
+    let ts = T.lines $ TE.decodeUtf8 bs
+
+    forM_ ts $ \t -> do
+      putStrLn $ T.unpack t
+      m <- parse parseHeader $ TE.encodeUtf8 $ t <> "END"
+      pure ()
+        -- print m
+
 
 sampleNSO :: Test ()
 sampleNSO = do
@@ -184,19 +283,32 @@ sampleNSO = do
       hdus <- eitherFail $ getAllHDUs bs
       length hdus @?= 2
 
--- Test monad with describe/it
-newtype Test a = Test {runTest :: Writer [TestTree] a}
-  deriving (Functor, Applicative, Monad, MonadWriter [TestTree])
 
-runTests :: TestName -> Test () -> TestTree
-runTests n (Test t) =
-  let tests = execWriter t :: [TestTree]
-   in testGroup n tests
+
+-- Test monad with describe/it
+newtype Test a = Test {runTest :: WriterT [TestTree] IO a}
+  deriving (Functor, Applicative, Monad, MonadIO, MonadWriter [TestTree])
+
+runTests :: TestName -> Test () -> IO TestTree
+runTests n (Test t) = do
+    tests <- execWriterT t :: IO [TestTree]
+    return $ testGroup n tests
+
+
+-- testMain t = do
+--     ts <-
 
 describe :: TestName -> Test () -> Test ()
-describe n t =
-  tell [runTests n t]
+describe n t = do
+    ts <- liftIO $ runTests n t
+    tell [ts]
 
 it :: TestName -> IO () -> Test ()
 it n a = do
-  tell [testCase n a]
+    tell [testCase n a]
+
+
+testMain :: IO TestTree -> IO ()
+testMain mtt = do
+    tt <- mtt
+    defaultMain tt
