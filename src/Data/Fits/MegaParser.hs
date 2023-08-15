@@ -102,6 +102,7 @@ parseKeywordValue = do
     key <- parseKeyword
     parseEquals
     val <- parseValue
+    -- traceM $ show key <> " = " <> show val
     return (key, val)
 
 parseInlineComment :: Int -> Parser Comment

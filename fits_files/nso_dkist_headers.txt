@@ -302,3 +302,4 @@ VSPMIRPS=              39.2904 / [mm] FoldMirrorPosition
 VSPSPOS =                12.15 / [mm] SlitSelectorPosition                      
 VSPNMAPS=                    1 / TotalMapScans                                  
 VSPMAP  =                    1 / CurrentMapScan                                 
+END

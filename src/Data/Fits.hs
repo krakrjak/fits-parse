@@ -12,7 +12,7 @@ Definitions for the data types needed to parse an HDU in a FITS block.
 {-# LANGUAGE PartialTypeSignatures, DataKinds, ExistentialQuantification
   , ScopedTypeVariables, GADTs
   , GeneralizedNewtypeDeriving
-  , OverloadedRecordDot, NoFieldSelectors
+  , NoFieldSelectors
   , OverloadedStrings, TypeOperators, TypeFamilies #-}
 module Data.Fits
     ( -- * Data payload functions
@@ -260,7 +260,26 @@ pixDimsByRow = reverse . pixDimsByCol
     that starts 2,880 bytes after the start of the 'HeaderData'.
 -}
 newtype Header = Header (Map Keyword Value)
-    deriving (Show, Eq)
+    deriving (Eq)
+
+instance Show Header where
+  show (Header m) =
+    let kvs = Map.toList m :: [(Keyword, Value)]
+    in T.unpack $ T.intercalate "\n" $ fmap line kvs
+    where
+      line :: (Keyword, Value) -> Text
+      line (Keyword k, v) =
+        T.justifyLeft 8 ' ' k
+        <> "="
+        <> T.justifyLeft (hduRecordLength - 10) ' ' (T.pack $ val v)
+
+      val (Integer n) = show n
+      val (Float f) = show f
+      val (Logic T) = "              T"
+      val (String t) = T.unpack t
+
+
+    
 
 lookup :: Keyword -> Header -> Maybe Value
 lookup k (Header m) = Map.lookup k m

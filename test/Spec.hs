@@ -5,8 +5,6 @@
 
 module Main where
 
-import Debug.Trace
-
 import Data.Text ( Text )
 import Data.ByteString ( ByteString )
 import Control.Monad.Writer
@@ -273,27 +271,25 @@ sampleNSOHeaders = do
       bs <- liftIO $ BS.readFile "./fits_files/nso_dkist_headers.txt"
       let ts = filter notContinue $ T.lines $ TE.decodeUtf8 bs
 
-      it "should parse all headers" $ do
+      it "should parse all headers individually" $ do
         forM_ ( zip [1..] ts ) $ \(n, t) -> do
-          -- print ("Header", n, t)
+          print ("Header", n, t)
           m <- parse parseHeader $ TE.encodeUtf8 $ t <> "END"
           pure ()
 
-  
+      it "should parse NAxes correctly" $ do
+        h <- parse parseHeader $ mconcat $ C8.lines bs
+        Fits.lookup "NAXIS" h @?= Just (Integer 3)
+        Fits.lookup "NAXIS1" h @?= Just (Integer 100)
+        Fits.lookup "NAXIS2" h @?= Just (Integer 998)
+        Fits.lookup "NAXIS3" h @?= Just (Integer 1)
+
+        sz <- parse (parseSizeKeywords h) ""
+        sz.naxes @?= NAxes [100, 998, 1]
 
   where
     notContinue = not . T.isPrefixOf "CONTINUE"
 
-
-test :: IO ()
-test = do
-    bs <- liftIO $ BS.readFile "./fits_files/nso_dkist_headers.txt"
-    let ts = T.lines $ TE.decodeUtf8 bs
-
-    forM_ ts $ \t -> do
-      putStrLn $ T.unpack t
-      m <- parse parseHeader $ TE.encodeUtf8 $ t <> "END"
-      pure ()
 
 
 sampleNSO :: Test ()
@@ -314,6 +310,9 @@ sampleNSO = do
       length hdus @?= 2
 
       [_, h2] <- pure hdus
+
+      putStrLn "\nHEADER"
+      print h2.header
 
       Fits.lookup "INSTRUME" h2.header @?= Just (String "VISP")
       Fits.lookup "NAXIS" h2.header @?= Just (Integer 3)
