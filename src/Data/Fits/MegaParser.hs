@@ -21,10 +21,9 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BS ( c2w )
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Stream as M
-import qualified Text.Megaparsec.Char as M
 import qualified Text.Megaparsec.Pos as MP
-import qualified Text.Megaparsec.Byte as MB
-import qualified Text.Megaparsec.Char.Lexer as MCL
+import qualified Text.Megaparsec.Byte as M
+import qualified Text.Megaparsec.Byte.Lexer as MBL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Map as Map
@@ -32,8 +31,11 @@ import qualified Data.Map as Map
 -- explicit imports
 import Control.Applicative ( (<$>) )
 import Control.Monad ( void, foldM )
+import Control.Exception ( Exception(displayException) )
 import Numeric.Natural ( Natural )
+import Data.Bifunctor ( first )
 import Data.ByteString ( ByteString )
+import Data.Char ( ord )
 import Data.Text ( Text )
 import Data.Word ( Word8, Word16, Word32, Word64 )
 import Data.Void ( Void )
@@ -51,7 +53,7 @@ import Data.Proxy
 import Data.Fits
 
 type Parser = Parsec Void ByteString
-type ParseErr = ParseErrorBundle Text Void
+type ParseErr = ParseErrorBundle ByteString Void
 
 data DataUnitValues
   = FITSUInt8 Word8
@@ -61,6 +63,12 @@ data DataUnitValues
   | FITSFloat32 Float
   | FITSFloat64 Double 
 
+
+toWord :: Char -> Word8
+toWord = fromIntegral . ord
+
+toText :: [Word8] -> Text
+toText = TE.decodeUtf8 . BS.pack
 
 
 
@@ -94,24 +102,23 @@ parsePos = MP.unPos . MP.sourceColumn <$> M.getSourcePos
 
 parseComment :: Int -> Parser Comment
 parseComment start = do
-    M.char '/'
+    M.char $ toWord '/'
     M.space
     com <- parsePos
     let end = start + 80
     let rem = end - com
     c <- M.count rem M.anySingle
-    return $ Comment (T.pack c)
+    return $ Comment (toText c)
 
-
-
+-- | Anything but a space or equals
 parseKeyword :: Parser Keyword
-parseKeyword = Keyword <$> parseText
+parseKeyword = Keyword . toText <$> M.some (M.noneOf $ fmap toWord [' ', '='])
 
 parseValue :: Parser Value
 parseValue = 
     -- try is required here because Megaparsec doesn't automatically backtrack if the parser consumes anything
-    M.try (Float <$> MCL.signed M.space MCL.float)
-    <|> M.try (Integer <$> MCL.signed M.space MCL.decimal)
+    M.try (Float <$> MBL.signed M.space MBL.float)
+    <|> M.try (Integer <$> MBL.signed M.space MBL.decimal)
     <|> (String <$> parseStringValue)
     <|> (Logic <$> parseLogic)
 
@@ -122,7 +129,7 @@ parseLogic = do
 
 parseText :: Parser Text
 parseText = do
-    T.pack <$> M.many M.alphaNumChar
+    toText <$> M.many M.alphaNumChar
 
 
 -- | We don't parse simple here, because it isn't required on all HDUs
@@ -159,10 +166,6 @@ parseBitPix kvs = do
       toBitpix (Integer (-32)) = return ThirtyTwoBitFloat
       toBitpix (Integer (-64)) = return SixtyFourBitFloat
       toBitpix _ = fail "Invalid BITPIX header"
-
-parseAxisCount :: Parser Natural
-parseAxisCount = M.string' "naxis" >> parseEquals >> parseNatural
-
 
 
 requireNaxis :: Header -> Parser Int
@@ -220,7 +223,7 @@ parseNaxes kvs = do
 -- parseDate = M.string' "date" >> parseEquals >> parseStringValue
 
 skipEmpty :: Parser ()
-skipEmpty = void (M.many $ M.satisfy ('\0' ==))
+skipEmpty = void (M.many $ M.satisfy (toWord '\0' ==))
 
 consumeDead :: Parser ()
 consumeDead = M.space >> skipEmpty
@@ -229,19 +232,7 @@ parseEnd :: Parser ()
 parseEnd = M.string' "end" >> M.space <* M.eof
 
 parseEquals :: Parser ()
-parseEquals = M.space >> M.char '=' >> M.space
-
-parseNatural :: Parser Natural
-parseNatural = do
-    v <- MCL.decimal
-    consumeDead
-    return $ fromIntegral v
-
-parseInteger :: Parser Int
-parseInteger = do
-    v <- MCL.decimal
-    consumeDead
-    return v
+parseEquals = M.space >> M.char (toWord '=') >> M.space
 
 parseStringValue :: Parser Text
 parseStringValue = do
@@ -251,8 +242,8 @@ parseStringValue = do
     -- within the quotes, but not leading spaces.
     ls <- M.between (M.char quote) (M.char quote) $ M.many $ M.anySingleBut quote
     consumeDead
-    return (T.pack ls)
-    where quote = '\''
+    return (toText ls)
+    where quote = toWord '\''
 
 
 parseHDU :: Parser HeaderDataUnit
@@ -263,46 +254,37 @@ parseHDU = do
 
     -- now grab the data array
     let len = dataSize sz
-    da <- M.takeP (Just ("Data Array of " <> show len <> " Bytes")) len
-    return $ HeaderDataUnit h size da
+    da <- M.takeP (Just ("Data Array of " <> show len <> " Bytes")) (fromIntegral len)
+    return $ HeaderDataUnit h sz da
 
+parseHDUs :: Parser [HeaderDataUnit]
+parseHDUs = do
+    M.many parseHDU
 
+getAllHDUs :: ByteString -> Either FitsError [HeaderDataUnit]
+getAllHDUs bs = do
+    first ParseError $ M.runParser parseHDUs "FITS" bs
 
--- countHeaderDataUnits :: ByteString -> IO Natural
--- countHeaderDataUnits bs = fromIntegral . length <$> getAllHDUs bs
-
--- -- TODO: make the recursive case work. Currently limited to one HDU.
--- -- The current issue is that when the parser fails on an HDU parse, it
--- -- blows them all up instead of accepting the valid parsings.
--- getAllHDUs :: ByteString -> IO [HeaderDataUnit]
--- getAllHDUs bs = do
---     (hdu, rest) <- getOneHDU bs
---     return [hdu]
-
---    if BS.length rest < hduBlockSize then return [hdu] else return [hdu]
-getOneHDU :: ByteString -> IO (HeaderDataUnit, ByteString)
-getOneHDU bs =
-    if isAscii header
-      then
-        case M.runParser parseHeaderSize "FITS" (TE.decodeUtf8 header) of
-          Right (mainHeader, size) -> do
-            let (dataUnit, remainder) = BS.splitAt (fromIntegral $ dataSize size) rest
-            return (HeaderDataUnit mainHeader size dataUnit, remainder)
-          Left e -> let err = M.errorBundlePretty e in error err
-      else error "Header data is not ASCII. Please Check your input file and try again"
-  where
-    -- TODO: this won't work. headers can span multiple blocks
-    -- can we consume the ByteString directly?
-    (header, rest) = BS.splitAt hduBlockSize bs
+getOneHDU :: ByteString -> Either FitsError HeaderDataUnit
+getOneHDU bs = do
+    first ParseError $ M.runParser parseHDU "FITS" bs
 
 dataSize :: SizeKeywords -> Natural
-dataSize h = wordSize * wordCount
+dataSize h = size * count
   where
-    -- paddedsize
+    count = fromIntegral $ product $ axes $ naxes h
+    size = fromIntegral . bitPixToByteSize $ bitpix h
 
-    wordCount = fromIntegral $ product $ axes $ naxes h
-    wordSize = fromIntegral . bitPixToWordSize $ bitpix h
 
---   datasize = wordsize * wordCount
---   padding = if axesCount == 0 then 0 else fromIntegral hduBlockSize - datasize `mod` fromIntegral hduBlockSize
---   paddedsize = fromIntegral (datasize + padding)
+newtype FitsError
+    = ParseError ParseErr
+    deriving (Eq)
+
+instance Show FitsError where
+    show (ParseError e) = displayException e
+
+
+
+-- 1st. Which dataset can we do. Put it where they can use it
+-- 2nd. When they have made a L2 data product. How do we get that back in such a way that we can put it on the protal
+-- 3rd. Make the middle part automatic.

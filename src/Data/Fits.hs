@@ -39,6 +39,7 @@ module Data.Fits
     , isBitPixInt
     , isBitPixFloat
     , bitPixToWordSize
+    , bitPixToByteSize
 
       -- ** Constants
     , hduRecordLength

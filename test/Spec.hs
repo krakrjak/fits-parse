@@ -5,9 +5,11 @@
 
 module Main where
 
-import Data.Text (Text)
+import Data.Text ( Text )
+import Data.ByteString ( ByteString )
 import Control.Monad.Writer
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as C8
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -28,21 +30,25 @@ main =
     headerMap
     requiredHeaders
     sampleSpiral
-    sampleNSO
+    -- sampleNSO
 
-parse :: Parser a -> Text -> IO a
+parse :: Parser a -> ByteString -> IO a
 parse p inp =
     case M.parse p "Test" inp of
         Left e -> fail $ displayException e
         Right v -> pure v
 
-keywords :: [Text] -> Text
+eitherFail :: Show err => Either err a -> IO a
+eitherFail (Left e) = fail (show e)
+eitherFail (Right a) = return a
+
+keywords :: [ByteString] -> ByteString
 keywords ts = mconcat (map pad ts) <> "END"
 
-pad :: Text -> Text
+pad :: ByteString -> ByteString
 pad m =
-  let n = 80 - T.length m
-  in m <> T.replicate n " "
+  let n = 80 - BS.length m
+  in m <> C8.replicate n ' '
 
 
 basicParsing :: Test ()
@@ -54,6 +60,14 @@ basicParsing = describe "Basic Parsing" $ do
   it "should parse a number value" $ do
     res <- parse parseValue "42 "
     res @?= Integer 42
+
+  it "should parse a keyword" $ do
+    res <- parse parseKeyword "WS_TEMP ="
+    res @?= Keyword "WS_TEMP"
+
+  it "should handle keyword symbols" $ do
+    res <- parse parseKeyword "OBSGEO-X=   -5466045.256954942 / [m]"
+    res @?= Keyword "OBSGEO-X"
 
 
 
@@ -101,6 +115,11 @@ fullRecord = describe "parseKeywordRecord" $ do
       res <- parse parseKeywordRecord $ keywords ["SIMPLE  =                    T / conforms to FITS standard"]
       res @?= ("SIMPLE", Logic T)
 
+  it "should handle keyword symbols" $ do
+    res <- parse parseKeywordRecord $ keywords ["OBSGEO-X=   -5466045.256954942 / [m]"]
+    res @?= ("OBSGEO-X", Float (-5466045.256954942))
+
+
 
 
 headerMap :: Test ()
@@ -146,7 +165,7 @@ sampleSpiral =
   describe "Spiral Sample FITS Parse" $ do
     it "should parse" $ do
       bs <- BS.readFile "./fits_files/Spiral_2_30_0_300_10_0_NoGrad.fits"
-      (hdu, _) <- getOneHDU bs
+      hdu <- eitherFail $ getOneHDU bs
       hdu.size.bitpix @?= ThirtyTwoBitFloat
       hdu.size.naxes @?= NAxes [621, 621]
       -- TODO: what should the length be?
@@ -162,8 +181,8 @@ sampleNSO = do
   describe "NSO Sample FITS Parse" $ do
     it "should parse" $ do
       bs <- BS.readFile "./fits_files/nso_dkist.fits"
-      x <- getOneHDU bs
-      print "OK"
+      hdus <- eitherFail $ getAllHDUs bs
+      length hdus @?= 2
 
 -- Test monad with describe/it
 newtype Test a = Test {runTest :: Writer [TestTree] a}
