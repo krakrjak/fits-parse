@@ -38,6 +38,7 @@ import Data.Bifunctor ( first )
 import Data.ByteString ( ByteString )
 import Data.Char ( ord )
 import Data.Text ( Text )
+import Data.Map ( Map )
 import Data.Word ( Word8, Word16, Word32, Word64 )
 import Data.Void ( Void )
 import Data.Default ( def )
@@ -54,6 +55,8 @@ import Data.Maybe ( catMaybes, fromMaybe )
 -- local imports
 import Data.Fits
 import qualified Data.Fits as Fits
+import qualified Data.Text.Encoding as C8
+import qualified Data.Binary as C8
 
 type Parser = Parsec Void ByteString
 type ParseErr = ParseErrorBundle ByteString Void
@@ -74,13 +77,12 @@ toText :: [Word8] -> Text
 toText = TE.decodeUtf8 . BS.pack
 
 
-
 -- | Consumes ALL header blocks until end, then all remaining space
-parseHeader :: Parser Header
-parseHeader = do
+parseAllKeywords :: Parser (Map Keyword Value)
+parseAllKeywords = do
     pairs <- M.manyTill parseRecordLine (M.string' "end")
     M.space -- consume space padding all the way to the end of the next 2880 bytes header block
-    return $ Header $ Map.fromList $ catMaybes pairs
+    return $ Map.fromList $ catMaybes pairs
 
 parseRecordLine :: Parser (Maybe (Keyword, Value))
 parseRecordLine = do
@@ -88,14 +90,18 @@ parseRecordLine = do
     <|> Nothing <$ parseLineComment
     <|> Nothing <$ M.string' (BS.replicate hduRecordLength (toWord ' '))
 
-parseKeywordRecord :: Parser (Keyword, Value)
-parseKeywordRecord = do
+-- | Combinator to allow for parsing a record with inline comments
+withComments :: Parser a -> Parser a
+withComments parseKV = do
     start <- parsePos
-    kv <- parseKeywordValue
+    kv <- parseKV
     M.space
     M.optional $ parseInlineComment start
     M.space
     return kv
+
+parseKeywordRecord :: Parser (Keyword, Value)
+parseKeywordRecord = withComments parseKeywordValue
 
 parseKeywordValue :: Parser (Keyword, Value)
 parseKeywordValue = do
@@ -129,15 +135,21 @@ parseKeyword = Keyword . toText <$> M.some (M.noneOf $ fmap toWord [' ', '='])
 parseValue :: Parser Value
 parseValue =
     -- try is required here because Megaparsec doesn't automatically backtrack if the parser consumes anything
-    M.try (Float <$> MBL.signed M.space MBL.float)
-    <|> M.try (Integer <$> MBL.signed M.space MBL.decimal)
+    M.try (Float <$> parseFloat)
+    <|> M.try (Integer <$> parseInt)
     <|> (Logic <$> parseLogic)
     <|> (String <$> parseStringContinue)
-    where
-      parseLogic :: Parser LogicalConstant
-      parseLogic = do
-          M.string' "T"
-          return T
+
+parseInt :: Num a => Parser a
+parseInt = MBL.signed M.space MBL.decimal
+
+parseFloat :: Parser Float
+parseFloat = MBL.signed M.space MBL.float
+
+parseLogic :: Parser LogicalConstant
+parseLogic = do
+    M.string' "T"
+    return T
 
 parseStringContinue :: Parser Text
 parseStringContinue = do
@@ -152,13 +164,18 @@ parseStringContinue = do
       Nothing -> return t
       Just tc -> return $ T.dropWhileEnd (=='&') t <> tc
 
+parseStringValue :: Parser Text
+parseStringValue = do
+    -- The rules are weird, NULL means a NULL string, '' is an empty
+    -- string, a ' followed by a bunch of spaces and a close ' is
+    -- considered an empty string, and trailing whitespace is ignored
+    -- within the quotes, but not leading spaces.
+    ls <- M.between (M.char quote) (M.char quote) $ M.many $ M.anySingleBut quote
+    consumeDead
+    return (T.stripEnd $ toText ls)
+    where quote = toWord '\''
 
--- | We don't parse simple here, because it isn't required on all HDUs
-parseSizeKeywords :: Header -> Parser SizeKeywords
-parseSizeKeywords kvs = do
-    bp <- parseBitPix kvs
-    ax <- parseNaxes kvs
-    return $ SizeKeywords { bitpix = bp, naxes = ax }
+
 
 requireKeyword :: Keyword -> Header -> Parser Value
 requireKeyword k kvs = do
@@ -167,26 +184,6 @@ requireKeyword k kvs = do
       Just v -> return v
             
 
-parseSimple :: Header -> Parser SimpleFormat
-parseSimple kvs = do
-    v <- requireKeyword "SIMPLE" kvs
-    case v of
-      Logic T -> return Conformant
-      _ -> fail "Invalid Keyword: SIMPLE"
-
-
-parseBitPix :: Header -> Parser BitPixFormat
-parseBitPix kvs = do
-    bpn <- requireKeyword "BITPIX" kvs
-    toBitpix bpn
-    where
-      toBitpix (Integer 8) = return EightBitInt
-      toBitpix (Integer 16) = return SixteenBitInt
-      toBitpix (Integer 32) = return ThirtyTwoBitInt
-      toBitpix (Integer 64) = return SixtyFourBitInt
-      toBitpix (Integer (-32)) = return ThirtyTwoBitFloat
-      toBitpix (Integer (-64)) = return SixtyFourBitFloat
-      toBitpix _ = fail "Invalid BITPIX header"
 
 
 requireNaxis :: Header -> Parser Int
@@ -197,22 +194,6 @@ requireNaxis kvs = do
       _ -> fail "Invalid NAXIS header"
 
 
-parseNaxes :: Header -> Parser NAxes
-parseNaxes kvs = do
-    n <- requireNaxis kvs
-    as <- mapM naxisn (keywords n)
-    return $ NAxes as
-
-    where
-      keywords :: Int -> [Keyword]
-      keywords n = fmap (Keyword . ("NAXIS"<>) . T.pack . show) [1..n]
-
-      naxisn :: Keyword -> Parser Natural
-      naxisn k = do
-        n <- requireKeyword k kvs
-        case n of
-          (Integer n) -> return (fromIntegral n)
-          _ -> fail $ "Invalid: " <> show k
 
 -- TODO: replace these with known headers
 
@@ -255,31 +236,86 @@ parseEnd = M.string' "end" >> M.space <* M.eof
 parseEquals :: Parser ()
 parseEquals = M.space >> M.char (toWord '=') >> M.space
 
-parseStringValue :: Parser Text
-parseStringValue = do
-    -- The rules are weird, NULL means a NULL string, '' is an empty
-    -- string, a ' followed by a bunch of spaces and a close ' is
-    -- considered an empty string, and trailing whitespace is ignored
-    -- within the quotes, but not leading spaces.
-    ls <- M.between (M.char quote) (M.char quote) $ M.many $ M.anySingleBut quote
-    consumeDead
-    return (T.stripEnd $ toText ls)
-    where quote = toWord '\''
-
 parsePos :: Parser Int
 parsePos = MP.unPos . MP.sourceColumn <$> M.getSourcePos
 
 
+parseSimple :: Parser SimpleFormat
+parseSimple = withComments $ do
+    M.string' "SIMPLE"
+    parseEquals
+    parseLogic
+    return Conformant
+
+parseExtension :: Parser Text
+parseExtension = withComments $ do
+    M.string' "XTENSION"
+    parseEquals
+    parseStringValue
+
+parseBitPix :: Parser BitPixFormat
+parseBitPix = withComments $ do
+    M.string' "BITPIX"
+    parseEquals
+    v <- parseValue
+    toBitpix v
+    where
+      toBitpix (Integer 8) = return EightBitInt
+      toBitpix (Integer 16) = return SixteenBitInt
+      toBitpix (Integer 32) = return ThirtyTwoBitInt
+      toBitpix (Integer 64) = return SixtyFourBitInt
+      toBitpix (Integer (-32)) = return ThirtyTwoBitFloat
+      toBitpix (Integer (-64)) = return SixtyFourBitFloat
+      toBitpix _ = fail "Invalid BITPIX header"
+
+parseNaxes :: Parser NAxes
+parseNaxes = do
+    n <- parse
+    ax <- mapM parseN [1..n]
+    return $ NAxes ax
+
+    where
+      parse :: Parser Int
+      parse = withComments $ do
+        M.string' "NAXIS"
+        parseEquals
+        parseInt
+
+      parseN :: Int -> Parser Natural
+      parseN n = withComments $ do
+        M.string' "NAXIS"
+        M.string' $ BS.pack $ map toWord (show n)
+        parseEquals
+        parseInt
+
+
+-- | We don't parse simple here, because it isn't required on all HDUs
+parseSizeKeywords :: Parser SizeKeywords
+parseSizeKeywords = do
+    bp <- parseBitPix
+    ax <- parseNaxes
+    return $ SizeKeywords { bitpix = bp, naxes = ax }
+
+
+parseHeader :: Parser Header
+parseHeader = do
+    -- this consumes all the way up to the end of the header
+    -- TODO: handle simple vs image xtension, etc. Each is required differently
+    void parseExtension <|> void parseSimple
+
+    sz <- parseSizeKeywords
+    kvs <- parseAllKeywords
+    return $ Header { size = sz, keywords = kvs }
+  
+
 parseHDU :: Parser HeaderDataUnit
 parseHDU = do
-    -- this consumes all the way up to the end of the header
     h <- parseHeader
-    sz <- parseSizeKeywords h
 
     -- now grab the data array
-    let len = dataSize sz
+    let len = dataSize h.size
     da <- M.takeP (Just ("Data Array of " <> show len <> " Bytes")) (fromIntegral len)
-    return $ HeaderDataUnit h sz da
+    return $ HeaderDataUnit h da
 
 parseHDUs :: Parser [HeaderDataUnit]
 parseHDUs = do

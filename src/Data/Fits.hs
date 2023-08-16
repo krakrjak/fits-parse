@@ -12,6 +12,7 @@ Definitions for the data types needed to parse an HDU in a FITS block.
 {-# LANGUAGE PartialTypeSignatures, DataKinds, ExistentialQuantification
   , ScopedTypeVariables, GADTs
   , GeneralizedNewtypeDeriving
+  , OverloadedRecordDot
   , NoFieldSelectors
   , OverloadedStrings, TypeOperators, TypeFamilies #-}
 module Data.Fits
@@ -27,7 +28,6 @@ module Data.Fits
       -- ** Header Data Types
     , Header(..)
     , Data.Fits.lookup
-    , Data.Fits.size
     , Keyword(..)
     , Value(..)
     , LogicalConstant(..)
@@ -259,14 +259,23 @@ pixDimsByRow = reverse . pixDimsByCol
     metadata, but also specifying how to make sense of the binary payload
     that starts 2,880 bytes after the start of the 'HeaderData'.
 -}
-newtype Header = Header (Map Keyword Value)
-    deriving (Eq)
+data Header = Header
+    { keywords :: Map Keyword Value
+    , size :: SizeKeywords
+    } deriving (Eq)
 
 instance Show Header where
-  show (Header m) =
-    let kvs = Map.toList m :: [(Keyword, Value)]
+  show h =
+    let kvs = Map.toList h.keywords :: [(Keyword, Value)]
     in T.unpack $ T.intercalate "\n" $ fmap line kvs
     where
+
+      init :: [Text]
+      init = map T.pack
+        [ "BITPIX =" <> show h.size.bitpix
+        , "NAXES  =" <> show h.size.naxes
+        ]
+
       line :: (Keyword, Value) -> Text
       line (Keyword k, v) =
         T.justifyLeft 8 ' ' k
@@ -282,10 +291,7 @@ instance Show Header where
     
 
 lookup :: Keyword -> Header -> Maybe Value
-lookup k (Header m) = Map.lookup k m
-
-size :: Header -> Int
-size (Header m) = Map.size m
+lookup k (Header m _) = Map.lookup k m
 
 newtype Keyword = Keyword Text
     deriving (Show, Eq, Ord, IsString)
@@ -350,9 +356,6 @@ data HeaderDataUnit = HeaderDataUnit
     { 
     -- ^ All keywords in the header
       header :: Header
-
-    -- ^ Required size headers
-    , size :: SizeKeywords
 
       -- ^ The actual data payload
     , payloadData :: ByteString
