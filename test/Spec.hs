@@ -27,16 +27,16 @@ import GHC.RTS.Flags (MiscFlags(numIoWorkerThreads))
 main :: IO ()
 main =
   testMain $ runTests "Tests" $ do
-    -- basicParsing
-    -- keywordValueLines
-    -- comments
-    -- continue
-    -- fullRecord
-    -- fullRecordLine
-    -- headerMap
-    -- requiredHeaders
-    -- sampleSpiral
-    -- sampleNSOHeaders
+    basicParsing
+    keywordValueLines
+    comments
+    continue
+    fullRecord
+    fullRecordLine
+    headerMap
+    requiredHeaders
+    sampleSpiral
+    sampleNSOHeaders
     sampleNSO
 
 parse :: Parser a -> ByteString -> IO a
@@ -206,9 +206,9 @@ headerMap = describe "full header" $ do
 
 requiredHeaders :: Test ()
 requiredHeaders = describe "required headers" $ do
-    it "should parse simple format" $ do
-      res <- parse parseSimple $ keywords ["SIMPLE=    T"]
-      res @?= Conformant
+
+    --   res <- parse parseSimple $ keywords ["SIMPLE=    T"]
+    --   res @?= Primary
 
     it "should parse bitpix" $ do
       res <- parse parseBitPix $ keywords ["BITPIX = 16"]
@@ -225,9 +225,14 @@ requiredHeaders = describe "required headers" $ do
 
     it "should include required headers in the keywords" $ do
       h <- parse parseHeader $ keywords ["SIMPLE = T", "BITPIX = -32", "NAXIS=2", "NAXIS1=10", "NAXIS2=20", "TEST='hi'"]
+      h.unitType @?= Primary
       h.size.naxes @?= NAxes [10,20]
-      Map.size h.keywords @?= 5
+      Map.size h.keywords @?= 6
       Map.lookup "NAXIS" h.keywords @?= Just (Integer 2) 
+
+    it "should parse full extension" $ do
+      h <- parse parseHeader $ keywords ["XTENSION= 'BINTABLE'", "BITPIX = -32", "NAXIS=2", "NAXIS1=10", "NAXIS2=20", "PCOUNT=100", "GCOUNT=1"]
+      h.unitType @?= BinTable { pCount = 100 }
 
 
 sampleSpiral :: Test ()
@@ -299,23 +304,22 @@ sampleNSO = do
 
       [_, h2] <- pure hdus
 
-      print h2.header
-
+      -- print h2.header
+      --
       Fits.lookup "INSTRUME" h2.header @?= Just (String "VISP")
       Fits.lookup "NAXIS" h2.header @?= Just (Integer 2)
 
       let sizeOnDisk = 161280
-
-      let payloadLength = BS.length h2.payloadData
-
-      
+          countedHeaderBlocks = 11
+          payloadLength = BS.length h2.payloadData
 
       h2.header.size.bitpix @?= EightBitInt
       h2.header.size.naxes @?= NAxes [32, 998]
 
       payloadLength @?= fromIntegral (dataSize (h2.header.size))
 
-      -- payloadLength @?= sizeOnDisk - (numHeaderBlocks * hduBlockSize)
+      -- TODO: we aren't getting the data correctly
+      payloadLength @?= sizeOnDisk - (countedHeaderBlocks * hduBlockSize)
 
 
 

@@ -27,6 +27,7 @@ module Data.Fits
 
       -- ** Header Data Types
     , Header(..)
+    , UnitType(..)
     , Data.Fits.lookup
     , Keyword(..)
     , Value(..)
@@ -262,6 +263,7 @@ pixDimsByRow = reverse . pixDimsByCol
 data Header = Header
     { keywords :: Map Keyword Value
     , size :: SizeKeywords
+    , unitType :: UnitType
     } deriving (Eq)
 
 instance Show Header where
@@ -287,11 +289,20 @@ instance Show Header where
       val (Logic T) = "              T"
       val (String t) = T.unpack t
 
-
-    
-
 lookup :: Keyword -> Header -> Maybe Value
-lookup k (Header m _) = Map.lookup k m
+lookup k (Header m _ _) = Map.lookup k m
+
+data UnitType
+    -- | Any header data unit can use the primary format. The first MUST be
+    = Primary
+
+    -- | An encoded image. PCOUNT and GCOUNT are required but irrelevant
+    | Image
+
+    -- | A Binary table. PCOUNT is the number of bytes that follow the data
+    -- in the 'heap'
+    | BinTable { pCount :: Int }
+    deriving (Show, Eq)
 
 newtype Keyword = Keyword Text
     deriving (Show, Eq, Ord, IsString)

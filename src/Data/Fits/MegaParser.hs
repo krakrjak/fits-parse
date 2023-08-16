@@ -92,16 +92,23 @@ parseRecordLine = do
 
 -- | Combinator to allow for parsing a record with inline comments
 withComments :: Parser a -> Parser a
-withComments parseKV = do
+withComments parse = do
     start <- parsePos
-    kv <- parseKV
+    a <- parse
     M.space
     M.optional $ parseInlineComment start
     M.space
-    return kv
+    return a
 
 parseKeywordRecord :: Parser (Keyword, Value)
 parseKeywordRecord = withComments parseKeywordValue
+
+-- | Parses the specified keyword
+parseKeywordRecord' :: ByteString -> Parser a -> Parser a
+parseKeywordRecord' k pval = withComments $ do
+    M.string' k
+    parseEquals
+    pval
 
 parseKeywordValue :: Parser (Keyword, Value)
 parseKeywordValue = do
@@ -131,6 +138,8 @@ parseLineComment = do
 -- | Anything but a space or equals
 parseKeyword :: Parser Keyword
 parseKeyword = Keyword . toText <$> M.some (M.noneOf $ fmap toWord [' ', '='])
+
+    
 
 parseValue :: Parser Value
 parseValue =
@@ -240,24 +249,9 @@ parsePos :: Parser Int
 parsePos = MP.unPos . MP.sourceColumn <$> M.getSourcePos
 
 
-parseSimple :: Parser SimpleFormat
-parseSimple = withComments $ do
-    M.string' "SIMPLE"
-    parseEquals
-    parseLogic
-    return Conformant
-
-parseExtension :: Parser Text
-parseExtension = withComments $ do
-    M.string' "XTENSION"
-    parseEquals
-    parseStringValue
-
 parseBitPix :: Parser BitPixFormat
-parseBitPix = withComments $ do
-    M.string' "BITPIX"
-    parseEquals
-    v <- parseValue
+parseBitPix = do
+    v <- parseKeywordRecord' "BITPIX" parseValue
     toBitpix v
     where
       toBitpix (Integer 8) = return EightBitInt
@@ -270,17 +264,11 @@ parseBitPix = withComments $ do
 
 parseNaxes :: Parser NAxes
 parseNaxes = do
-    n <- parse
+    n <- parseKeywordRecord' "NAXIS" parseInt
     ax <- mapM parseN [1..n]
     return $ NAxes ax
 
     where
-      parse :: Parser Int
-      parse = withComments $ do
-        M.string' "NAXIS"
-        parseEquals
-        parseInt
-
       parseN :: Int -> Parser Natural
       parseN n = withComments $ do
         M.string' "NAXIS"
@@ -297,14 +285,40 @@ parseSizeKeywords = do
     return $ SizeKeywords { bitpix = bp, naxes = ax }
 
 
+
+parseRequired :: Parser (UnitType, SizeKeywords)
+parseRequired = do
+    -- don't process the required fields, because they come AFTER the 
+    parsePrimary <|> parseImage <|> parseBinTable
+    where
+      parseImage = do
+        withComments $ M.string' "XTENSION= 'IMAGE   '"
+        M.space
+        sz <- parseSizeKeywords
+        return (Image, sz)
+
+      parseBinTable = do
+        withComments $ M.string' "XTENSION= 'BINTABLE'"
+        M.space
+        sz <- parseSizeKeywords
+        p <- pCount
+        return (BinTable { pCount = p }, sz)
+
+      parsePrimary = do
+        simple
+        sz <- parseSizeKeywords
+        return (Primary, sz)
+
+      simple = parseKeywordRecord' "SIMPLE" parseLogic
+      pCount = parseKeywordRecord' "PCOUNT" parseInt
+      gCount = parseKeywordRecord' "GCOUNT" parseInt
+
+
 parseHeader :: Parser Header
 parseHeader = do
-    -- this consumes all the way up to the end of the header
-    -- TODO: handle simple vs image xtension, etc. Each is required differently
-    void parseExtension <|> void parseSimple
-    sz <- M.lookAhead parseSizeKeywords
+    (ut, sz) <- M.lookAhead parseRequired
     kvs <- parseAllKeywords
-    return $ Header { size = sz, keywords = kvs }
+    return $ Header { size = sz, keywords = kvs, unitType = ut }
   
 
 parseHDU :: Parser HeaderDataUnit
