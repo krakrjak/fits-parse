@@ -302,8 +302,7 @@ parseHeader = do
     -- this consumes all the way up to the end of the header
     -- TODO: handle simple vs image xtension, etc. Each is required differently
     void parseExtension <|> void parseSimple
-
-    sz <- parseSizeKeywords
+    sz <- M.lookAhead parseSizeKeywords
     kvs <- parseAllKeywords
     return $ Header { size = sz, keywords = kvs }
   
@@ -346,7 +345,3 @@ instance Show FitsError where
     show (ParseError e) = displayException e
 
 
-
--- 1st. Which dataset can we do. Put it where they can use it
--- 2nd. When they have made a L2 data product. How do we get that back in such a way that we can put it on the protal
--- 3rd. Make the middle part automatic.

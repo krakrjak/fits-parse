@@ -27,17 +27,17 @@ import GHC.RTS.Flags (MiscFlags(numIoWorkerThreads))
 main :: IO ()
 main =
   testMain $ runTests "Tests" $ do
-    basicParsing
-    keywordValueLines
-    comments
-    continue
-    fullRecord
-    fullRecordLine
-    headerMap
-    requiredHeaders
-    sampleSpiral
-    sampleNSOHeaders
-    -- sampleNSO
+    -- basicParsing
+    -- keywordValueLines
+    -- comments
+    -- continue
+    -- fullRecord
+    -- fullRecordLine
+    -- headerMap
+    -- requiredHeaders
+    -- sampleSpiral
+    -- sampleNSOHeaders
+    sampleNSO
 
 parse :: Parser a -> ByteString -> IO a
 parse p inp =
@@ -223,6 +223,12 @@ requiredHeaders = describe "required headers" $ do
       res.bitpix @?= ThirtyTwoBitFloat
       res.naxes @?= NAxes [10,20]
 
+    it "should include required headers in the keywords" $ do
+      h <- parse parseHeader $ keywords ["SIMPLE = T", "BITPIX = -32", "NAXIS=2", "NAXIS1=10", "NAXIS2=20", "TEST='hi'"]
+      h.size.naxes @?= NAxes [10,20]
+      Map.size h.keywords @?= 5
+      Map.lookup "NAXIS" h.keywords @?= Just (Integer 2) 
+
 
 sampleSpiral :: Test ()
 sampleSpiral =
@@ -293,8 +299,7 @@ sampleNSO = do
 
       [_, h2] <- pure hdus
 
-      putStrLn "\nHEADER"
-      -- print h2.header
+      print h2.header
 
       Fits.lookup "INSTRUME" h2.header @?= Just (String "VISP")
       Fits.lookup "NAXIS" h2.header @?= Just (Integer 2)
@@ -343,3 +348,16 @@ testMain :: IO TestTree -> IO ()
 testMain mtt = do
     tt <- mtt
     defaultMain tt
+
+
+
+test :: IO ()
+test = do
+    bs <- BS.readFile "./fits_files/nso_dkist_headers.txt"
+    h <- parse parseHeader bs
+    print h
+
+
+
+
+

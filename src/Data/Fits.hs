@@ -269,12 +269,12 @@ instance Show Header where
     let kvs = Map.toList h.keywords :: [(Keyword, Value)]
     in T.unpack $ T.intercalate "\n" $ fmap line kvs
     where
-
-      init :: [Text]
-      init = map T.pack
-        [ "BITPIX =" <> show h.size.bitpix
-        , "NAXES  =" <> show h.size.naxes
-        ]
+      --
+      -- init :: [Text]
+      -- init = map T.pack
+      --   [ "BITPIX =" <> show h.size.bitpix
+      --   , "NAXES  =" <> show h.size.naxes
+      --   ]
 
       line :: (Keyword, Value) -> Text
       line (Keyword k, v) =
@@ -354,7 +354,7 @@ newtype Comment = Comment Text
 -}
 data HeaderDataUnit = HeaderDataUnit
     { 
-    -- ^ All keywords in the header
+    -- ^ The heeader contains metadata about the payload
       header :: Header
 
       -- ^ The actual data payload
