@@ -1,11 +1,39 @@
-XTENSION= 'IMAGE   '                                                            
-BITPIX  =                  -64                                                  
-NAXIS   =                    3                                                  
-NAXIS1  =                  100 / [pix]                                          
-NAXIS2  =                  998 / [pix]                                          
-NAXIS3  =                    1 / [pix]                                          
-PCOUNT  =                    0                                                  
-GCOUNT  =                    1                                                  
+XTENSION= 'BINTABLE'           / binary table extension                         
+BITPIX  =                    8 / array data type                                
+NAXIS   =                    2 / number of array dimensions                     
+NAXIS1  =                   32 / width of table in bytes                        
+NAXIS2  =                  998 / number of rows in table                        
+PCOUNT  =                95968 / number of group parameters                     
+GCOUNT  =                    1 / number of groups                               
+TFIELDS =                    4 / number of fields in each row                   
+TTYPE1  = 'COMPRESSED_DATA'    / label for field 1                              
+TFORM1  = '1PB(114)'           / data format of field: variable length array    
+TTYPE2  = 'GZIP_COMPRESSED_DATA' / label for field 2                            
+TFORM2  = '1PB(0)  '           / data format of field: variable length array    
+TTYPE3  = 'ZSCALE  '           / label for field 3                              
+TFORM3  = '1D      '           / data format of field: 8-byte DOUBLE            
+TTYPE4  = 'ZZERO   '           / label for field 4                              
+TFORM4  = '1D      '           / data format of field: 8-byte DOUBLE            
+ZIMAGE  =                    T / extension contains compressed image            
+ZTENSION= 'IMAGE   '                                                            
+ZBITPIX =                  -64                                                  
+ZNAXIS  =                    3                                                  
+ZNAXIS1 =                  100 / [pix]                                          
+ZNAXIS2 =                  998 / [pix]                                          
+ZNAXIS3 =                    1 / [pix]                                          
+ZPCOUNT =                    0                                                  
+ZGCOUNT =                    1                                                  
+ZTILE1  =                  100 / size of tiles to be compressed                 
+ZTILE2  =                    1 / size of tiles to be compressed                 
+ZTILE3  =                    1 / size of tiles to be compressed                 
+ZCMPTYPE= 'RICE_1  '           / compression algorithm                          
+ZNAME1  = 'BLOCKSIZE'          / compression block size                         
+ZVAL1   =                   32 / pixels per block                               
+ZNAME2  = 'BYTEPIX '           / bytes per pixel (1, 2, 4, or 8)                
+ZVAL2   =                    4 / bytes per pixel (1, 2, 4, or 8)                
+ZNAME3  = 'NOISEBIT'           / floating point quantization level              
+ZVAL3   =                 16.0 / floating point quantization level              
+ZQUANTIZ= 'NO_DITHER'          / No dithering during quantization               
 BUNIT   = 'ct      '                                                            
 DATE    = '2023-04-22T04:10:58.392'                                             
 DATE-BEG= '2022-06-03T18:34:29.559'                                             
@@ -18,8 +46,8 @@ OBSRVTRY= 'Haleakala High Altitude Observatory Site'
 NETWORK = 'NSF-DKIST'                                                           
 INSTRUME= 'VISP    '                                                            
 OBJECT  = 'unknown '                                                            
-CHECKSUM= 'UMSGaMQFVMQFaMQF'   / HDU checksum updated 2023-04-22T04:10:59       
-DATASUM = '550335088'          / data unit checksum updated 2023-04-22T04:10:59 
+CHECKSUM= '9kg8Akd53kd59kd5'   / HDU checksum updated 2023-04-22T04:10:59       
+DATASUM = '2081763389'         / data unit checksum updated 2023-04-22T04:10:59 
                                                                                 
 COMMENT ------------------------------ Telescope -------------------------------
 COMMENT  Keys describing the pointing and operation of the telescope. Including 
@@ -53,7 +81,7 @@ CUNIT3  = 'arcsec  '
 CUNIT1A = 'nm      '                                                            
 CUNIT2A = 'deg     '                                                            
 CUNIT3A = 'deg     '                                                            
-CTYPE1  = 'AWxAV    '                                                            
+CTYPE1  = 'AWAV    '                                                            
 CTYPE2  = 'HPLT-TAN'                                                            
 CTYPE3  = 'HPLN-TAN'                                                            
 CTYPE1A = 'AWAV    '                                                            
@@ -302,4 +330,31 @@ VSPMIRPS=              39.2904 / [mm] FoldMirrorPosition
 VSPSPOS =                12.15 / [mm] SlitSelectorPosition                      
 VSPNMAPS=                    1 / TotalMapScans                                  
 VSPMAP  =                    1 / CurrentMapScan                                 
-END
+ZHECKSUM= 'UMSGaMQFVMQFaMQF'   / HDU checksum updated 2023-04-22T04:10:59       
+ZDATASUM= '550335088'          / data unit checksum updated 2023-04-22T04:10:59 
+END                                                                             
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                

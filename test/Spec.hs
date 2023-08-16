@@ -273,19 +273,17 @@ sampleNSOHeaders = do
 
       it "should parse all headers individually" $ do
         forM_ ( zip [1..] ts ) $ \(n, t) -> do
-          print ("Header", n, t)
           m <- parse parseHeader $ TE.encodeUtf8 $ t <> "END"
           pure ()
 
       it "should parse NAxes correctly" $ do
         h <- parse parseHeader $ mconcat $ C8.lines bs
-        Fits.lookup "NAXIS" h @?= Just (Integer 3)
-        Fits.lookup "NAXIS1" h @?= Just (Integer 100)
+        Fits.lookup "NAXIS" h @?= Just (Integer 2)
+        Fits.lookup "NAXIS1" h @?= Just (Integer 32)
         Fits.lookup "NAXIS2" h @?= Just (Integer 998)
-        Fits.lookup "NAXIS3" h @?= Just (Integer 1)
 
         sz <- parse (parseSizeKeywords h) ""
-        sz.naxes @?= NAxes [100, 998, 1]
+        sz.naxes @?= NAxes [32, 998]
 
   where
     notContinue = not . T.isPrefixOf "CONTINUE"
@@ -312,10 +310,10 @@ sampleNSO = do
       [_, h2] <- pure hdus
 
       putStrLn "\nHEADER"
-      print h2.header
+      -- print h2.header
 
       Fits.lookup "INSTRUME" h2.header @?= Just (String "VISP")
-      Fits.lookup "NAXIS" h2.header @?= Just (Integer 3)
+      Fits.lookup "NAXIS" h2.header @?= Just (Integer 2)
 
       let sizeOnDisk = 161280
 
@@ -327,8 +325,8 @@ sampleNSO = do
 
       numHeaderBlocks @?= 8
 
-      h2.size.bitpix @?= SixtyFourBitFloat
-      h2.size.naxes @?= NAxes [100, 998, 1]
+      h2.size.bitpix @?= EightBitInt
+      h2.size.naxes @?= NAxes [32, 998]
 
       
 
