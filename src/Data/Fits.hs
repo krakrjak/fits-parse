@@ -27,7 +27,7 @@ module Data.Fits
 
       -- ** Header Data Types
     , Header(..)
-    , UnitType(..)
+    , Extension(..)
     , Data.Fits.lookup
     , Keyword(..)
     , Value(..)
@@ -260,11 +260,8 @@ pixDimsByRow = reverse . pixDimsByCol
     metadata, but also specifying how to make sense of the binary payload
     that starts 2,880 bytes after the start of the 'HeaderData'.
 -}
-data Header = Header
-    { keywords :: Map Keyword Value
-    , size :: SizeKeywords
-    , unitType :: UnitType
-    } deriving (Eq)
+newtype Header = Header { keywords :: Map Keyword Value }
+    deriving (Eq)
 
 instance Show Header where
   show h =
@@ -290,10 +287,12 @@ instance Show Header where
       val (String t) = T.unpack t
 
 lookup :: Keyword -> Header -> Maybe Value
-lookup k (Header m _ _) = Map.lookup k m
+lookup k h = Map.lookup k h.keywords
 
-data UnitType
+
+data Extension
     -- | Any header data unit can use the primary format. The first MUST be
+    -- Primary. This is equivalent to having no extension
     = Primary
 
     -- | An encoded image. PCOUNT and GCOUNT are required but irrelevant
@@ -301,7 +300,9 @@ data UnitType
 
     -- | A Binary table. PCOUNT is the number of bytes that follow the data
     -- in the 'heap'
-    | BinTable { pCount :: Int }
+    -- TODO: TFIELDS, TFORMn
+    -- TODO: Bintable always has 2 NAXES
+    | BinTable { pCount :: Int, heap :: ByteString }
     deriving (Show, Eq)
 
 newtype Keyword = Keyword Text
@@ -329,45 +330,12 @@ data SizeKeywords = SizeKeywords
 newtype Comment = Comment Text
     deriving (Show, Eq, Ord, IsString)
 
--- data HeaderData = HeaderData
-    -- { simpleFormat :: SimpleFormat
-    --   -- ^ SIMPLE
-    -- , bitPixFormat :: BitPixFormat
-    --   -- ^ BITPIX
-    -- , axes :: [Axis]
-    --   -- ^ Axes metadata
-    -- , objectIdentifier :: Text
-    --   -- ^ OBJECT
-    -- , observationDate :: Text
-    --   -- ^ DATE
-    -- , originIdentifier :: Text
-    --   -- ^ OBJECT
-    -- , telescopeIdentifier :: Text
-    --   -- ^ TELESCOP
-    -- , instrumentIdentifier :: Text
-    --   -- ^ INSTRUME
-    -- , observerIdentifier :: Text
-    --   -- ^ OBSERVER
-    -- , authorIdentifier :: Text
-    --   -- ^ CREATOR
-    -- , referenceString :: Text
-    --   -- ^ REFERENC
-    -- }
-
--- instance Default HeaderData where
---     def = HeaderData NonConformant EightBitInt []
-        -- "" "" ""
-        -- "" "" ""
-        -- "" ""
 
 {-| The 'HeaderDataUnit' is the full HDU. Both the header information is
     encoded alongside the data payload.
 -}
 data HeaderDataUnit = HeaderDataUnit
-    { 
-    -- ^ The heeader contains metadata about the payload
-      header :: Header
-
-      -- ^ The actual data payload
-    , payloadData :: ByteString
+    { header :: Header         -- ^ The heeader contains metadata about the payload
+    , extension :: Extension   -- ^ Extensions may vary the data format
+    , dataArray :: ByteString  -- ^ The main data array
     }

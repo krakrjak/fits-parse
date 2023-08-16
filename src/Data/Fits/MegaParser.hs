@@ -15,8 +15,6 @@ Parsing rules for an HDU in a FITS file.
 
 module Data.Fits.MegaParser where
 
-import Debug.Trace
-
 -- qualified imports
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BS ( c2w )
@@ -78,8 +76,8 @@ toText = TE.decodeUtf8 . BS.pack
 
 
 -- | Consumes ALL header blocks until end, then all remaining space
-parseAllKeywords :: Parser (Map Keyword Value)
-parseAllKeywords = do
+parseHeader :: Parser (Map Keyword Value)
+parseHeader = do
     pairs <- M.manyTill parseRecordLine (M.string' "end")
     M.space -- consume space padding all the way to the end of the next 2880 bytes header block
     return $ Map.fromList $ catMaybes pairs
@@ -115,7 +113,6 @@ parseKeywordValue = do
     key <- parseKeyword
     parseEquals
     val <- parseValue
-    -- traceM $ show key <> " = " <> show val
     return (key, val)
 
 parseInlineComment :: Int -> Parser Comment
@@ -284,51 +281,48 @@ parseSizeKeywords = do
     ax <- parseNaxes
     return $ SizeKeywords { bitpix = bp, naxes = ax }
 
+parsePrimary :: Parser HeaderDataUnit
+parsePrimary = do
+    parseKeywordRecord' "SIMPLE" parseLogic
+    sz <- M.lookAhead parseSizeKeywords
+    h <- parseHeader
+    d <- parseDataArray sz
+    return $ HeaderDataUnit { header = Header h, extension = Primary, dataArray = d }
 
+parseImage :: Parser HeaderDataUnit
+parseImage = do
+    withComments $ M.string' "XTENSION= 'IMAGE   '"
+    sz <- M.lookAhead parseSizeKeywords
+    h <- parseHeader
+    d <- parseDataArray sz
+    return $ HeaderDataUnit { header = Header h, extension = Image, dataArray = d }
 
-parseRequired :: Parser (UnitType, SizeKeywords)
-parseRequired = do
-    -- don't process the required fields, because they come AFTER the 
-    parsePrimary <|> parseImage <|> parseBinTable
+parseBinTable :: Parser HeaderDataUnit
+parseBinTable = do
+    (sz, pc) <- M.lookAhead parseBinTableKeywords
+    h <- parseHeader
+    d <- parseDataArray sz
+    hp <- parseBinTableHeap
+    let tab = BinTable pc hp
+    return $ HeaderDataUnit { header = Header h, extension = tab, dataArray = d }
     where
-      parseImage = do
-        withComments $ M.string' "XTENSION= 'IMAGE   '"
-        M.space
-        sz <- parseSizeKeywords
-        return (Image, sz)
+      parseBinTableHeap = return ""
 
-      parseBinTable = do
-        withComments $ M.string' "XTENSION= 'BINTABLE'"
-        M.space
-        sz <- parseSizeKeywords
-        p <- pCount
-        return (BinTable { pCount = p }, sz)
+parseBinTableKeywords :: Parser (SizeKeywords, Int)
+parseBinTableKeywords = do 
+  withComments $ M.string' "XTENSION= 'BINTABLE'"
+  sz <- parseSizeKeywords
+  pc <- parseKeywordRecord' "PCOUNT" parseInt
+  return (sz, pc)
 
-      parsePrimary = do
-        simple
-        sz <- parseSizeKeywords
-        return (Primary, sz)
-
-      simple = parseKeywordRecord' "SIMPLE" parseLogic
-      pCount = parseKeywordRecord' "PCOUNT" parseInt
-      gCount = parseKeywordRecord' "GCOUNT" parseInt
-
-
-parseHeader :: Parser Header
-parseHeader = do
-    (ut, sz) <- M.lookAhead parseRequired
-    kvs <- parseAllKeywords
-    return $ Header { size = sz, keywords = kvs, unitType = ut }
-  
+parseDataArray :: SizeKeywords -> Parser ByteString
+parseDataArray size = do
+    let len = dataSize size
+    M.takeP (Just ("Data Array of " <> show len <> " Bytes")) (fromIntegral len)
 
 parseHDU :: Parser HeaderDataUnit
-parseHDU = do
-    h <- parseHeader
-
-    -- now grab the data array
-    let len = dataSize h.size
-    da <- M.takeP (Just ("Data Array of " <> show len <> " Bytes")) (fromIntegral len)
-    return $ HeaderDataUnit h da
+parseHDU =
+    parsePrimary <|> parseImage <|> parseBinTable
 
 parseHDUs :: Parser [HeaderDataUnit]
 parseHDUs = do
