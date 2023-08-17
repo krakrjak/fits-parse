@@ -14,7 +14,7 @@ Definitions for the data types needed to parse an HDU in a FITS block.
   , GeneralizedNewtypeDeriving
   , OverloadedRecordDot
   , NoFieldSelectors
-  , OverloadedStrings, TypeOperators, TypeFamilies #-}
+  , OverloadedStrings, TypeFamilies #-}
 module Data.Fits
     ( -- * Data payload functions
       parsePix
@@ -31,12 +31,13 @@ module Data.Fits
     , Data.Fits.lookup
     , Keyword(..)
     , Value(..)
+    , toInt, toFloat, toText
     , LogicalConstant(..)
-    , SizeKeywords(..)
+    , Dimensions(..)
     , Comment(..)
     , SimpleFormat(..)
     , BitPixFormat(..)
-    , NAxes(..)
+    , Axes(..)
 
       -- * Utility
     , isBitPixInt
@@ -69,14 +70,12 @@ import GHC.TypeNats (KnownNat, Nat)
 ---- text
 import Data.Text ( Text )
 import Data.Map ( Map )
+import Data.List ( intercalate )
 
 ---- bytestring
 import Data.ByteString ( ByteString )
 
----- default
-import Data.Default( Default, def )
 
----- binaryi
 import Data.Binary
 import Data.Binary.Get
 
@@ -115,14 +114,9 @@ data SimpleFormat = Conformant
                     -- NonConformat
                     -- ^ Value of SIMPLE=F in the header. /unsupported/
 
--- | 'NAxes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes
-newtype NAxes = NAxes { axes :: [Natural] }
+-- | 'Axes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes
+newtype Axes = Axes [Natural]
     deriving (Semigroup, Monoid, Show, Eq)
-
--- | The default instance for 'Axis' is NAXIS=0 with zero elements.
-instance Default NAxes where
-    def = NAxes []
-
 
 {-| The 'BitPixFormat' is the nitty gritty of how the 'Axis' data is layed
     out in the file. The standard recognizes six formats: unsigned 8 bit
@@ -247,13 +241,13 @@ parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
 {- `pixDimsByCol` takes a list of Axis and gives a column-row major list of
     axes dimensions.
 -}
-pixDimsByCol :: NAxes -> [Natural]
-pixDimsByCol (NAxes as) = as
+pixDimsByCol :: Axes -> [Natural]
+pixDimsByCol (Axes as) = as
 
 {- `pixDimsByRow` takes a list of Axis and gives a row-column major list of
     axes dimensions.
 -}
-pixDimsByRow :: NAxes -> [Natural]
+pixDimsByRow :: Axes -> [Natural]
 pixDimsByRow = reverse . pixDimsByCol
 
 {-| The header part of the HDU is vital carrying not only authorship
@@ -300,31 +294,45 @@ data Extension
 
     -- | A Binary table. PCOUNT is the number of bytes that follow the data
     -- in the 'heap'
-    -- TODO: TFIELDS, TFORMn
-    -- TODO: Bintable always has 2 NAXES
     | BinTable { pCount :: Int, heap :: ByteString }
-    deriving (Show, Eq)
+    deriving (Eq)
+
+instance Show Extension where
+    show Primary = "Primary"
+    show Image = "Image"
+    show (BinTable p _) = "BinTable: heap = " <> show p <> " Bytes"
 
 newtype Keyword = Keyword Text
     deriving (Show, Eq, Ord, IsString)
 
 data Value
     = Integer Int
-    | String Text
     | Float Float
+    | String Text
     | Logic LogicalConstant
     deriving (Show, Eq)
 
 data LogicalConstant = T
     deriving (Show, Eq)
 
+toInt :: Value -> Maybe Int
+toInt (Integer i) = Just i
+toInt _ = Nothing
+
+toFloat :: Value -> Maybe Float
+toFloat (Float n) = Just n
+toFloat _ = Nothing
+
+toText :: Value -> Maybe Text
+toText (String s) = Just s
+toText _ = Nothing
 
 {-| When we load a header, we parse the BITPIX and NAXIS(N) keywords so we
  -  can know how long the data array is
 -}
-data SizeKeywords = SizeKeywords
+data Dimensions = Dimensions
     { bitpix :: BitPixFormat
-    , naxes :: NAxes
+    , axes :: Axes
     } deriving (Show, Eq)
 
 newtype Comment = Comment Text
@@ -336,6 +344,15 @@ newtype Comment = Comment Text
 -}
 data HeaderDataUnit = HeaderDataUnit
     { header :: Header         -- ^ The heeader contains metadata about the payload
+    , dimensions :: Dimensions -- ^ This dimensions of the main data array
     , extension :: Extension   -- ^ Extensions may vary the data format
-    , dataArray :: ByteString  -- ^ The main data array
+    , mainData :: ByteString   -- ^ The main data array
     }
+
+instance Show HeaderDataUnit where
+    show hdu = intercalate "\n" 
+      [ "HeaderDataUnit:"
+      , "  headers = " <> show (Map.size hdu.header.keywords)
+      , "  extension = " <> show hdu.extension
+      , "  mainData = " <> show (BS.length hdu.mainData) <> " Bytes"
+      ]

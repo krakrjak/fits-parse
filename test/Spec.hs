@@ -5,24 +5,25 @@
 
 module Main where
 
-import Data.Text ( Text )
-import Data.ByteString ( ByteString )
+import Control.Exception (Exception(displayException), throwIO)
 import Control.Monad.Writer
+import Data.ByteString ( ByteString )
+import Data.Fits
+import Data.Fits.MegaParser
+import Data.Fits.Read
+import Data.List ( unfoldr )
+import Data.Text ( Text )
+import GHC.RTS.Flags (MiscFlags(numIoWorkerThreads))
+import Test.Tasty
+import Test.Tasty.HUnit
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
+import qualified Data.Fits as Fits
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.Fits.MegaParser
-import Data.Fits
-import qualified Data.Fits as Fits
-import Data.List ( unfoldr )
-import Test.Tasty
-import Test.Tasty.HUnit
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as M
-import Control.Exception (Exception(displayException), throwIO)
-import GHC.RTS.Flags (MiscFlags(numIoWorkerThreads))
 
 main :: IO ()
 main =
@@ -35,7 +36,7 @@ main =
     fullRecordLine
     headerMap
     requiredHeaders
-    dataArray
+    mainData
     sampleSpiral
     sampleNSOHeaders
     sampleNSO
@@ -45,10 +46,6 @@ parse p inp =
     case M.parse p "Test" inp of
         Left e -> fail $ displayException e
         Right v -> pure v
-
-eitherFail :: Show err => Either err a -> IO a
-eitherFail (Left e) = fail (show e)
-eitherFail (Right a) = return a
 
 keywords :: [ByteString] -> ByteString
 keywords ts = mconcat (map pad ts) <> "END"
@@ -217,12 +214,12 @@ requiredHeaders = describe "required headers" $ do
 
     it "should parse NAxes" $ do
       res <- parse parseNaxes $ keywords ["NAXIS = 3", "NAXIS1=1", "NAXIS2=2", "NAXIS3=3"]
-      res @?= NAxes [1,2,3]
+      res @?= Axes [1,2,3]
 
     it "should parse size" $ do
-      res <- parse parseSizeKeywords $ keywords ["BITPIX = -32", "NAXIS=2", "NAXIS1=10", "NAXIS2=20"]
+      res <- parse parseDimensions $ keywords ["BITPIX = -32", "NAXIS=2", "NAXIS1=10", "NAXIS2=20"]
       res.bitpix @?= ThirtyTwoBitFloat
-      res.naxes @?= NAxes [10,20]
+      res.axes @?= Axes [10,20]
 
     it "should include required headers in the keywords" $ do
       let fakeData = "1234" -- Related to NAXIS!
@@ -235,12 +232,12 @@ requiredHeaders = describe "required headers" $ do
       h <- parse parseBinTable $ keywords ["XTENSION= 'BINTABLE'", "BITPIX = -32", "NAXIS=0", "PCOUNT=0", "GCOUNT=1"]
       h.extension @?= BinTable { pCount = 0, heap = "" }
 
-dataArray :: Test ()
-dataArray = describe "data array" $ do
+mainData :: Test ()
+mainData = describe "data array" $ do
     it "should grab correct data array" $ do
       let fakeData = "1234" -- Related to NAXIS!
       h <- parse parsePrimary $ keywords ["SIMPLE = T", "BITPIX = 8", "NAXIS=2", "NAXIS1=2", "NAXIS2=2", "TEST='hi'"] <> "       " <> fakeData
-      h.dataArray @?= fakeData
+      h.mainData @?= fakeData
 
 
 sampleSpiral :: Test ()
@@ -249,13 +246,13 @@ sampleSpiral =
     it "should parse" $ do
       let fileSizeOnDisk = 1545444
       bs <- BS.readFile "./fits_files/Spiral_2_30_0_300_10_0_NoGrad.fits"
-      hdu <- eitherFail $ getOneHDU bs
+      hdu <- eitherFail $ readPrimaryHDU bs
       -- hdu.header.size.bitpix @?= ThirtyTwoBitFloat
       -- hdu.header.size.naxes @?= NAxes [621, 621]
       --
       Fits.lookup "NAXIS" hdu.header @?= Just (Integer 2) 
 
-      let payloadSize = BS.length hdu.dataArray
+      let payloadSize = BS.length hdu.mainData
 
       -- Make sure we took the right number of bytes out of the file
       payloadSize @?= fileSizeOnDisk - hduBlockSize
@@ -287,7 +284,7 @@ sampleNSOHeaders = do
 
       it "should parse NAxes correctly" $ do
         (sz, _) <- parse parseBinTableKeywords $ mconcat $ C8.lines bs
-        sz.naxes @?= NAxes [32, 998]
+        sz.axes @?= Axes [32, 998]
 
   where
     ignore t = T.isPrefixOf "CONTINUE" t || T.isPrefixOf "END" t
@@ -299,13 +296,13 @@ sampleNSO = do
   describe "NSO Sample FITS Parse" $ do
     bs <- liftIO $ BS.readFile "./fits_files/nso_dkist.fits"
     it "should parse empty primary header" $ do
-      h0 <- eitherFail $ getOneHDU bs
+      h0 <- eitherFail $ readPrimaryHDU bs
       -- first header doesn't have any data
-      BS.length h0.dataArray @?= 0
+      BS.length h0.mainData @?= 0
 
 
     it "should parse both HDUs" $ do
-      hdus <- eitherFail $ getAllHDUs bs
+      hdus <- eitherFail $ readHDUs bs
       length hdus @?= 2
 
       [_, h2] <- pure hdus
@@ -316,7 +313,7 @@ sampleNSO = do
 
       let sizeOnDisk = 161280
           countedHeaderBlocks = 11 -- this was manually counted... until end of all headers
-          payloadLength = BS.length h2.dataArray
+          payloadLength = BS.length h2.mainData
           headerLength = countedHeaderBlocks * hduBlockSize
           heapLength = pCount h2.extension
 
@@ -351,9 +348,6 @@ runTests n (Test t) = do
     return $ testGroup n tests
 
 
--- testMain t = do
---     ts <-
-
 describe :: TestName -> Test () -> Test ()
 describe n t = do
     ts <- liftIO $ runTests n t
@@ -368,16 +362,6 @@ testMain :: IO TestTree -> IO ()
 testMain mtt = do
     tt <- mtt
     defaultMain tt
-
-
-
-test :: IO ()
-test = do
-    bs <- BS.readFile "./fits_files/nso_dkist_headers.txt"
-    h <- parse parseHeader bs
-    print h
-
-
 
 
 

@@ -25,7 +25,7 @@ import qualified Text.Megaparsec.Byte as M
 import qualified Text.Megaparsec.Byte.Lexer as MBL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import qualified Data.Map as Map
+import qualified Data.Map.Lazy as Map
 
 -- explicit imports
 import Control.Applicative ( (<$>) )
@@ -39,7 +39,6 @@ import Data.Text ( Text )
 import Data.Map ( Map )
 import Data.Word ( Word8, Word16, Word32, Word64 )
 import Data.Void ( Void )
-import Data.Default ( def )
 import Text.Ascii ( isAscii )
 import Text.Megaparsec ( Parsec, ParseErrorBundle, (<|>), (<?>))
 
@@ -71,8 +70,8 @@ data DataUnitValues
 toWord :: Char -> Word8
 toWord = fromIntegral . ord
 
-toText :: [Word8] -> Text
-toText = TE.decodeUtf8 . BS.pack
+wordsText :: [Word8] -> Text
+wordsText = TE.decodeUtf8 . BS.pack
 
 
 -- | Consumes ALL header blocks until end, then all remaining space
@@ -123,18 +122,18 @@ parseInlineComment start = do
     let end = start + hduRecordLength
     let rem = end - com
     c <- M.count rem M.anySingle
-    return $ Comment (toText c)
+    return $ Comment (wordsText c)
 
 parseLineComment :: Parser Comment
 parseLineComment = do
     let keyword = "COMMENT " :: ByteString
     M.string' keyword
     c <- M.count (hduRecordLength - BS.length keyword) M.anySingle
-    return $ Comment (toText c)
+    return $ Comment (wordsText c)
 
 -- | Anything but a space or equals
 parseKeyword :: Parser Keyword
-parseKeyword = Keyword . toText <$> M.some (M.noneOf $ fmap toWord [' ', '='])
+parseKeyword = Keyword . wordsText <$> M.some (M.noneOf $ fmap toWord [' ', '='])
 
     
 
@@ -178,7 +177,7 @@ parseStringValue = do
     -- within the quotes, but not leading spaces.
     ls <- M.between (M.char quote) (M.char quote) $ M.many $ M.anySingleBut quote
     consumeDead
-    return (T.stripEnd $ toText ls)
+    return (T.stripEnd $ wordsText ls)
     where quote = toWord '\''
 
 
@@ -188,9 +187,6 @@ requireKeyword k kvs = do
     case Fits.lookup k kvs of
       Nothing -> fail $ "Missing: " <> show k
       Just v -> return v
-            
-
-
 
 requireNaxis :: Header -> Parser Int
 requireNaxis kvs = do
@@ -198,37 +194,6 @@ requireNaxis kvs = do
     case v of
       Integer n -> return n
       _ -> fail "Invalid NAXIS header"
-
-
-
--- TODO: replace these with known headers
-
--- parseBzero :: Parser Int
--- parseBzero = M.string' "bzero" >> parseEquals >> parseInteger
---
--- parseBscale :: Parser Int
--- parseBscale = M.string' "bscale" >> parseEquals >> parseInteger
---
--- parseReference :: Parser Text
--- parseReference = M.string' "referenc" >> parseEquals >> parseStringValue
---
--- parseObserver :: Parser Text
--- parseObserver = M.string' "observer" >> parseEquals >> parseStringValue
---
--- parseInstrument :: Parser Text
--- parseInstrument = M.string' "instrume" >> parseEquals >> parseStringValue
---
--- parseTelescope :: Parser Text
--- parseTelescope = M.string' "telescop" >> parseEquals >> parseStringValue
---
--- parseObject :: Parser Text
--- parseObject = M.string' "object" >> parseEquals >> parseStringValue
---
--- parseCreator :: Parser Text
--- parseCreator = M.string' "creator" >> parseEquals >> parseStringValue
---
--- parseDate :: Parser Text
--- parseDate = M.string' "date" >> parseEquals >> parseStringValue
 
 skipEmpty :: Parser ()
 skipEmpty = void (M.many $ M.satisfy (toWord '\0' ==))
@@ -259,11 +224,11 @@ parseBitPix = do
       toBitpix (Integer (-64)) = return SixtyFourBitFloat
       toBitpix _ = fail "Invalid BITPIX header"
 
-parseNaxes :: Parser NAxes
+parseNaxes :: Parser Axes
 parseNaxes = do
     n <- parseKeywordRecord' "NAXIS" parseInt
     ax <- mapM parseN [1..n]
-    return $ NAxes ax
+    return $ Axes ax
 
     where
       parseN :: Int -> Parser Natural
@@ -273,50 +238,49 @@ parseNaxes = do
         parseEquals
         parseInt
 
-
 -- | We don't parse simple here, because it isn't required on all HDUs
-parseSizeKeywords :: Parser SizeKeywords
-parseSizeKeywords = do
+parseDimensions :: Parser Dimensions
+parseDimensions = do
     bp <- parseBitPix
     ax <- parseNaxes
-    return $ SizeKeywords { bitpix = bp, naxes = ax }
+    return $ Dimensions { bitpix = bp, axes = ax }
 
 parsePrimary :: Parser HeaderDataUnit
 parsePrimary = do
     parseKeywordRecord' "SIMPLE" parseLogic
-    sz <- M.lookAhead parseSizeKeywords
-    h <- parseHeader
-    d <- parseDataArray sz
-    return $ HeaderDataUnit { header = Header h, extension = Primary, dataArray = d }
+    dm <- M.lookAhead parseDimensions
+    hd <- parseHeader
+    dt <- parseMainData dm
+    return $ HeaderDataUnit { header = Header hd, extension = Primary, mainData = dt, dimensions = dm }
 
 parseImage :: Parser HeaderDataUnit
 parseImage = do
     withComments $ M.string' "XTENSION= 'IMAGE   '"
-    sz <- M.lookAhead parseSizeKeywords
-    h <- parseHeader
-    d <- parseDataArray sz
-    return $ HeaderDataUnit { header = Header h, extension = Image, dataArray = d }
+    dm <- M.lookAhead parseDimensions
+    hd <- parseHeader
+    dt <- parseMainData dm
+    return $ HeaderDataUnit { header = Header hd, extension = Image, mainData = dt, dimensions = dm }
 
 parseBinTable :: Parser HeaderDataUnit
 parseBinTable = do
-    (sz, pc) <- M.lookAhead parseBinTableKeywords
-    h <- parseHeader
-    d <- parseDataArray sz
+    (dm, pc) <- M.lookAhead parseBinTableKeywords
+    hd <- parseHeader
+    dt <- parseMainData dm
     hp <- parseBinTableHeap
     let tab = BinTable pc hp
-    return $ HeaderDataUnit { header = Header h, extension = tab, dataArray = d }
+    return $ HeaderDataUnit { header = Header hd, extension = tab, mainData = dt, dimensions = dm }
     where
       parseBinTableHeap = return ""
 
-parseBinTableKeywords :: Parser (SizeKeywords, Int)
+parseBinTableKeywords :: Parser (Dimensions, Int)
 parseBinTableKeywords = do 
   withComments $ M.string' "XTENSION= 'BINTABLE'"
-  sz <- parseSizeKeywords
+  sz <- parseDimensions
   pc <- parseKeywordRecord' "PCOUNT" parseInt
   return (sz, pc)
 
-parseDataArray :: SizeKeywords -> Parser ByteString
-parseDataArray size = do
+parseMainData :: Dimensions -> Parser ByteString
+parseMainData size = do
     let len = dataSize size
     M.takeP (Just ("Data Array of " <> show len <> " Bytes")) (fromIntegral len)
 
@@ -328,28 +292,11 @@ parseHDUs :: Parser [HeaderDataUnit]
 parseHDUs = do
     M.many parseHDU
 
-getAllHDUs :: ByteString -> Either FitsError [HeaderDataUnit]
-getAllHDUs bs = do
-    first ParseError $ M.runParser parseHDUs "FITS" bs
-
-getOneHDU :: ByteString -> Either FitsError HeaderDataUnit
-getOneHDU bs = do
-    first ParseError $ M.runParser parseHDU "FITS" bs
-
-dataSize :: SizeKeywords -> Natural
-dataSize h = size h.bitpix * count h.naxes
+dataSize :: Dimensions -> Natural
+dataSize h = size h.bitpix * count h.axes
   where
-    count (NAxes []) = 0
-    count (NAxes ax) = fromIntegral $ product ax
+    count (Axes []) = 0
+    count (Axes ax) = fromIntegral $ product ax
     size = fromIntegral . bitPixToByteSize
-
-
-
-newtype FitsError
-    = ParseError ParseErr
-    deriving (Eq)
-
-instance Show FitsError where
-    show (ParseError e) = displayException e
 
 

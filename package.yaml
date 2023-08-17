@@ -29,7 +29,6 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
-      - data-default
       - containers
       - text
       - megaparsec
