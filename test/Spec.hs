@@ -315,24 +315,25 @@ sampleNSO = do
       Fits.lookup "NAXIS" h2.header @?= Just (Integer 2)
 
       let sizeOnDisk = 161280
-          countedHeaderBlocks = 11
+          countedHeaderBlocks = 11 -- this was manually counted... until end of all headers
           payloadLength = BS.length h2.dataArray
-
-
-      print payloadLength
-      print h2.extension
-
-      -- h2.header.size.bitpix @?= EightBitInt
-      -- h2.header.size.naxes @?= NAxes [32, 998]
+          headerLength = countedHeaderBlocks * hduBlockSize
+          heapLength = pCount h2.extension
 
       -- Payload size is as expected
       payloadLength @?= 32 * 998 * fromIntegral (bitPixToByteSize EightBitInt)
       pCount h2.extension @?= 95968
 
-      -- TODO: we aren't getting the data correctly
-      payloadLength @?= sizeOnDisk - (countedHeaderBlocks * hduBlockSize) - pCount h2.extension
+      assertBool "The end of the heap has some null data" $ do
+        C8.all (/='\0') $ C8.take 100 $ C8.drop (headerLength + payloadLength + heapLength - 100) bs
+
+      assertBool "The remainder of the file contains real data" $ do
+        C8.all (=='\0') $ C8.drop (headerLength + payloadLength + heapLength) bs
+
+
 
       where
+        pCount :: Extension -> Int
         pCount (BinTable { pCount = p}) = p
         pCount _ = 0
 

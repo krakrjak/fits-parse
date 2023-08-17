@@ -6,5 +6,7 @@ docs/_build/*
 test.py
 pyproject.toml
 dist-newstyle/
+tags
 .nvim.lua
 .DS_Store
+hls.json
