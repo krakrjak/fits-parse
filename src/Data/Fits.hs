@@ -61,9 +61,6 @@ import qualified Data.Map as Map
 
 import Data.String (IsString)
 
----- base
-import Numeric.Natural ( Natural )
-
 ---- ghc
 import GHC.TypeNats (KnownNat, Nat)
 
@@ -115,7 +112,7 @@ data SimpleFormat = Conformant
                     -- ^ Value of SIMPLE=F in the header. /unsupported/
 
 -- | 'Axes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes
-newtype Axes = Axes [Natural]
+newtype Axes = Axes [Int]
     deriving (Semigroup, Monoid, Show, Eq)
 
 {-| The 'BitPixFormat' is the nitty gritty of how the 'Axis' data is layed
@@ -143,7 +140,7 @@ instance Show BitPixFormat where
 {-| This utility function can be used to get the word count for data in an
     HDU.
 -}
-bitPixToWordSize :: BitPixFormat -> Natural
+bitPixToWordSize :: BitPixFormat -> Int
 bitPixToWordSize EightBitInt       = 8
 bitPixToWordSize SixteenBitInt     = 16
 bitPixToWordSize ThirtyTwoBitInt   = 32
@@ -154,7 +151,7 @@ bitPixToWordSize SixtyFourBitFloat = 64
 {-| This utility function can be used to get the size in bytes of the
 -   format.
 -}
-bitPixToByteSize :: BitPixFormat -> Natural
+bitPixToByteSize :: BitPixFormat -> Int
 bitPixToByteSize EightBitInt       = 1
 bitPixToByteSize SixteenBitInt     = 2
 bitPixToByteSize ThirtyTwoBitInt   = 4
@@ -241,13 +238,13 @@ parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
 {- `pixDimsByCol` takes a list of Axis and gives a column-row major list of
     axes dimensions.
 -}
-pixDimsByCol :: Axes -> [Natural]
+pixDimsByCol :: Axes -> [Int]
 pixDimsByCol (Axes as) = as
 
 {- `pixDimsByRow` takes a list of Axis and gives a row-column major list of
     axes dimensions.
 -}
-pixDimsByRow :: Axes -> [Natural]
+pixDimsByRow :: Axes -> [Int]
 pixDimsByRow = reverse . pixDimsByCol
 
 {-| The header part of the HDU is vital carrying not only authorship

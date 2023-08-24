@@ -31,7 +31,6 @@ import qualified Data.Map.Lazy as Map
 import Control.Applicative ( (<$>) )
 import Control.Monad ( void, foldM )
 import Control.Exception ( Exception(displayException) )
-import Numeric.Natural ( Natural )
 import Data.Bifunctor ( first )
 import Data.ByteString ( ByteString )
 import Data.Char ( ord )
@@ -231,7 +230,7 @@ parseNaxes = do
     return $ Axes ax
 
     where
-      parseN :: Int -> Parser Natural
+      parseN :: Int -> Parser Int
       parseN n = withComments $ do
         M.string' "NAXIS"
         M.string' $ BS.pack $ map toWord (show n)
@@ -292,7 +291,7 @@ parseHDUs :: Parser [HeaderDataUnit]
 parseHDUs = do
     M.many parseHDU
 
-dataSize :: Dimensions -> Natural
+dataSize :: Dimensions -> Int
 dataSize h = size h.bitpix * count h.axes
   where
     count (Axes []) = 0
