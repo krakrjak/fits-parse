@@ -11,7 +11,10 @@ Definitions for the data types needed to parse an HDU in a FITS block.
 
 {-# LANGUAGE PartialTypeSignatures, DataKinds, ExistentialQuantification
   , ScopedTypeVariables, GADTs
-  , OverloadedStrings, TypeOperators, TypeFamilies #-}
+  , GeneralizedNewtypeDeriving
+  , OverloadedRecordDot
+  , NoFieldSelectors
+  , OverloadedStrings, TypeFamilies #-}
 module Data.Fits
     ( -- * Data payload functions
       parsePix
@@ -20,23 +23,27 @@ module Data.Fits
 
       -- * Main data types
     , HeaderDataUnit(..)
-    , HeaderData(..)
-    , BitPixFormat(..)
     , Pix(..)
 
       -- ** Header Data Types
+    , Header(..)
+    , Extension(..)
+    , Data.Fits.lookup
+    , Keyword(..)
+    , Value(..)
+    , toInt, toFloat, toText
+    , LogicalConstant(..)
+    , Dimensions(..)
+    , Comment(..)
     , SimpleFormat(..)
-    , Axis(..)
-    , StringType(..)
-    , StringValue(..)
-    , NumberType(..)
-    , NumberModifier(..)
-    , NumberValue(..)
+    , BitPixFormat(..)
+    , Axes(..)
 
       -- * Utility
     , isBitPixInt
     , isBitPixFloat
     , bitPixToWordSize
+    , bitPixToByteSize
 
       -- ** Constants
     , hduRecordLength
@@ -50,23 +57,22 @@ import qualified Data.Text as T
 ---- bytestring
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Map as Map
 
----- base
-import Numeric.Natural ( Natural )
+import Data.String (IsString)
 
 ---- ghc
 import GHC.TypeNats (KnownNat, Nat)
 
 ---- text
 import Data.Text ( Text )
+import Data.Map ( Map )
+import Data.List ( intercalate )
 
 ---- bytestring
 import Data.ByteString ( ByteString )
 
----- default
-import Data.Default( Default, def )
 
----- binaryi
 import Data.Binary
 import Data.Binary.Get
 
@@ -93,78 +99,6 @@ hduMaxRecords = 36
 hduBlockSize :: Int
 hduBlockSize = hduRecordLength * hduMaxRecords
  
-{-| There are many types of strings defined in the FITS documentation.
-    Refered to as "character string(s)" in the documentation, they can be
-    null, empty, undefined, or contain characters (printable ASCII only).
--} 
-data StringType = NullString      -- ^ The NULL character string (e.g. AUTHOR=)
-                | EmptyString     -- ^ An empty string (e.g. AUTHOR="")
-                | DataString      -- ^ Plain ASCII data
-
-instance Show StringType where
-    show NullString      = "Null String"
-    show EmptyString     = "Empty quoted String"
-    show DataString      = "String"
-
--- | A 'StringValue' is a type paired with a possible value.
-data StringValue = StringValue
-    { stringType :: StringType  -- ^ Which 'StringType' is this value?
-    , stringValue :: Maybe Text -- ^ The payload of a character string
-    }
-
-{-| The default instance of 'StringValue' is an undefined string with no
-    text.
--}
-instance Default StringValue where
-    def = StringValue NullString Nothing
-
-instance Show StringValue where
-        show (StringValue NullString _) = show NullString
-        show (StringValue EmptyString _) = show EmptyString
-        show (StringValue DataString Nothing) = "No good " ++ show DataString
-        show (StringValue DataString (Just s)) = show DataString ++ T.unpack s
-
-{-| The FITS standard allows for the encoding of unsigned integers, signed
-    integers, real numbers, and complex numbers. They are always ASCII
-    encoded. See 5.2 of the standard for more details.
--}
-data NumberType =
-      IntegerType -- ^ HDU ASCII encoded integer number
-    | RealType    -- ^ HDU ASCII encoded real number
-    | ComplexType -- ^ HDU ASCII encoded complex number
-
--- | Utility data type to help with the ASCII representation of numbers
-data NumberModifier =
-      Positive -- ^ HDU positive number value
-    | Negative -- ^ HDU negative number value
-    | Zero     -- ^ HDU numeric value is zero, could be positive or negative
-
-{-| 'NumberValue' contains an encoded numeric record from a data field.
-  This data type still needs to be converted into more useful Haskell data
-  types.
--}
-data NumberValue = NumberValue
-    { numberType        :: NumberType
-      -- ^ Key to decoding the structure
-    , realModifier      :: NumberModifier
-      -- ^ Encoding the sign of the real part
-    , realPart          :: Text
-      -- ^ All 'NumberType' have a real part (sign stripped)
-    , imaginaryModifier :: Maybe NumberModifier
-      -- ^ Encoding the sign of the imaginary part
-    , imaginaryPart     :: Maybe Text
-      -- ^ Only 'ComplexType' have an imaginary part (sign stripped)
-    , exponentModifier  :: Maybe NumberModifier
-      -- ^ 'Positive', 'Negative', or 'Zero'
-    , exponent          :: Maybe Int
-      -- ^ All 'NumberType' may have an exponent
-    }
-
-{-| The default instance for 'NumberValue' is a 32-bit integer of zero with
-    no imaginary or exponent parts.
--}
-instance Default NumberValue where
-    def = NumberValue IntegerType Zero "0" Nothing Nothing Nothing Nothing
 
 {-| The standard defines two possible values for the SIMPLE keyword, T and
     F. The T refers to a 'Conformant' format while F refers to
@@ -172,19 +106,14 @@ instance Default NumberValue where
     is supported.
 -}
 data SimpleFormat = Conformant
+    deriving (Eq, Show)
                     -- ^ Value of SIMPLE=T in the header. /supported/
-                  | NonConformant
+                    -- NonConformat
                     -- ^ Value of SIMPLE=F in the header. /unsupported/
 
--- | 'Axis' represents a single NAXIS record.
-data Axis = Axis
-    { axisNumber       :: Int -- ^ The axis number under consideration
-    , axisElementCount :: Int -- ^ The number of elements in this axis
-    }
-
--- | The default instance for 'Axis' is NAXIS=0 with zero elements.
-instance Default Axis where
-    def = Axis 0 0
+-- | 'Axes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes
+newtype Axes = Axes [Int]
+    deriving (Semigroup, Monoid, Show, Eq)
 
 {-| The 'BitPixFormat' is the nitty gritty of how the 'Axis' data is layed
     out in the file. The standard recognizes six formats: unsigned 8 bit
@@ -198,19 +127,20 @@ data BitPixFormat =
     | SixtyFourBitInt   -- ^ BITPIX = 64; two's complement binary integer of 64 bits
     | ThirtyTwoBitFloat -- ^ BITPIX = -32; IEEE single precision floating point of 32 bits
     | SixtyFourBitFloat -- ^ BITPIX = -64; IEEE double precision floating point of 64 bits
+    deriving (Eq)
 
 instance Show BitPixFormat where
-        show EightBitInt       = "8 bit unsigned integer"
-        show SixteenBitInt     = "16 bit signed integer"
-        show ThirtyTwoBitInt   = "32 bit signed integer"
-        show SixtyFourBitInt   = "64 bit signed interger"
-        show ThirtyTwoBitFloat = "32 bit IEEE single precision float"
-        show SixtyFourBitFloat = "64 bit IEEE double precision float"
+    show EightBitInt       = "8 bit unsigned integer"
+    show SixteenBitInt     = "16 bit signed integer"
+    show ThirtyTwoBitInt   = "32 bit signed integer"
+    show SixtyFourBitInt   = "64 bit signed interger"
+    show ThirtyTwoBitFloat = "32 bit IEEE single precision float"
+    show SixtyFourBitFloat = "64 bit IEEE double precision float"
 
 {-| This utility function can be used to get the word count for data in an
     HDU.
 -}
-bitPixToWordSize :: BitPixFormat -> Natural
+bitPixToWordSize :: BitPixFormat -> Int
 bitPixToWordSize EightBitInt       = 8
 bitPixToWordSize SixteenBitInt     = 16
 bitPixToWordSize ThirtyTwoBitInt   = 32
@@ -221,7 +151,7 @@ bitPixToWordSize SixtyFourBitFloat = 64
 {-| This utility function can be used to get the size in bytes of the
 -   format.
 -}
-bitPixToByteSize :: BitPixFormat -> Natural
+bitPixToByteSize :: BitPixFormat -> Int
 bitPixToByteSize EightBitInt       = 1
 bitPixToByteSize SixteenBitInt     = 2
 bitPixToByteSize ThirtyTwoBitInt   = 4
@@ -308,57 +238,118 @@ parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
 {- `pixDimsByCol` takes a list of Axis and gives a column-row major list of
     axes dimensions.
 -}
-pixDimsByCol :: [Axis] -> [Int]
-pixDimsByCol = map axisElementCount
+pixDimsByCol :: Axes -> [Int]
+pixDimsByCol (Axes as) = as
 
 {- `pixDimsByRow` takes a list of Axis and gives a row-column major list of
     axes dimensions.
 -}
-pixDimsByRow :: [Axis] -> [Int]
+pixDimsByRow :: Axes -> [Int]
 pixDimsByRow = reverse . pixDimsByCol
 
 {-| The header part of the HDU is vital carrying not only authorship
     metadata, but also specifying how to make sense of the binary payload
     that starts 2,880 bytes after the start of the 'HeaderData'.
 -}
+newtype Header = Header { keywords :: Map Keyword Value }
+    deriving (Eq)
 
-data HeaderData = HeaderData
-    { simpleFormat :: SimpleFormat
-      -- ^ SIMPLE
-    , bitPixFormat :: BitPixFormat
-      -- ^ BITPIX
-    , axes :: [Axis]
-      -- ^ Axes metadata
-    , objectIdentifier :: StringValue
-      -- ^ OBJECT
-    , observationDate :: StringValue
-      -- ^ DATE
-    , originIdentifier :: StringValue
-      -- ^ OBJECT
-    , telescopeIdentifier :: StringValue
-      -- ^ TELESCOP
-    , instrumentIdentifier :: StringValue
-      -- ^ INSTRUME
-    , observerIdentifier :: StringValue
-      -- ^ OBSERVER
-    , authorIdentifier :: StringValue
-      -- ^ CREATOR
-    , referenceString :: StringValue
-      -- ^ REFERENC
-    }
+instance Show Header where
+  show h =
+    let kvs = Map.toList h.keywords :: [(Keyword, Value)]
+    in T.unpack $ T.intercalate "\n" $ fmap line kvs
+    where
+      --
+      -- init :: [Text]
+      -- init = map T.pack
+      --   [ "BITPIX =" <> show h.size.bitpix
+      --   , "NAXES  =" <> show h.size.naxes
+      --   ]
 
-instance Default HeaderData where
-    def = HeaderData NonConformant EightBitInt []
-        (def :: StringValue) (def :: StringValue) (def :: StringValue)
-        (def :: StringValue) (def :: StringValue) (def :: StringValue)
-        (def :: StringValue) (def :: StringValue)
+      line :: (Keyword, Value) -> Text
+      line (Keyword k, v) =
+        T.justifyLeft 8 ' ' k
+        <> "="
+        <> T.justifyLeft (hduRecordLength - 10) ' ' (T.pack $ val v)
+
+      val (Integer n) = show n
+      val (Float f) = show f
+      val (Logic T) = "              T"
+      val (String t) = T.unpack t
+
+lookup :: Keyword -> Header -> Maybe Value
+lookup k h = Map.lookup k h.keywords
+
+
+data Extension
+    -- | Any header data unit can use the primary format. The first MUST be
+    -- Primary. This is equivalent to having no extension
+    = Primary
+
+    -- | An encoded image. PCOUNT and GCOUNT are required but irrelevant
+    | Image
+
+    -- | A Binary table. PCOUNT is the number of bytes that follow the data
+    -- in the 'heap'
+    | BinTable { pCount :: Int, heap :: ByteString }
+    deriving (Eq)
+
+instance Show Extension where
+    show Primary = "Primary"
+    show Image = "Image"
+    show (BinTable p _) = "BinTable: heap = " <> show p <> " Bytes"
+
+newtype Keyword = Keyword Text
+    deriving (Show, Eq, Ord, IsString)
+
+data Value
+    = Integer Int
+    | Float Float
+    | String Text
+    | Logic LogicalConstant
+    deriving (Show, Eq)
+
+data LogicalConstant = T
+    deriving (Show, Eq)
+
+toInt :: Value -> Maybe Int
+toInt (Integer i) = Just i
+toInt _ = Nothing
+
+toFloat :: Value -> Maybe Float
+toFloat (Float n) = Just n
+toFloat _ = Nothing
+
+toText :: Value -> Maybe Text
+toText (String s) = Just s
+toText _ = Nothing
+
+{-| When we load a header, we parse the BITPIX and NAXIS(N) keywords so we
+ -  can know how long the data array is
+-}
+data Dimensions = Dimensions
+    { bitpix :: BitPixFormat
+    , axes :: Axes
+    } deriving (Show, Eq)
+
+newtype Comment = Comment Text
+    deriving (Show, Eq, Ord, IsString)
+
 
 {-| The 'HeaderDataUnit' is the full HDU. Both the header information is
-    encoded alongside the 'Axis' payload.
+    encoded alongside the data payload.
 -}
 data HeaderDataUnit = HeaderDataUnit
-    { headerData :: HeaderData
-      -- ^ Just the header part of the HDU
-    , payloadData :: ByteString
-      -- ^ The actual data payload
+    { header :: Header         -- ^ The heeader contains metadata about the payload
+    , dimensions :: Dimensions -- ^ This dimensions of the main data array
+    , extension :: Extension   -- ^ Extensions may vary the data format
+    , mainData :: ByteString   -- ^ The main data array
     }
+
+instance Show HeaderDataUnit where
+    show hdu = intercalate "\n" 
+      [ "HeaderDataUnit:"
+      , "  headers = " <> show (Map.size hdu.header.keywords)
+      , "  extension = " <> show hdu.extension
+      , "  mainData = " <> show (BS.length hdu.mainData) <> " Bytes"
+      ]

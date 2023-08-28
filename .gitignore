@@ -2,3 +2,11 @@ fits-parse.cabal
 .stack-work/
 docs/_build/*
 .liquid/
+.python-version
+test.py
+pyproject.toml
+dist-newstyle/
+tags
+.nvim.lua
+.DS_Store
+hls.json

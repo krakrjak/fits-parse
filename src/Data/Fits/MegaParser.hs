@@ -11,6 +11,7 @@ Parsing rules for an HDU in a FITS file.
 
 {-# OPTIONS_HADDOCK hide #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 module Data.Fits.MegaParser where
 
@@ -19,20 +20,24 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BS ( c2w )
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Stream as M
-import qualified Text.Megaparsec.Char as M
-import qualified Text.Megaparsec.Char.Lexer as MCL
+import qualified Text.Megaparsec.Pos as MP
+import qualified Text.Megaparsec.Byte as M
+import qualified Text.Megaparsec.Byte.Lexer as MBL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Map.Lazy as Map
 
 -- explicit imports
 import Control.Applicative ( (<$>) )
-import Control.Monad ( void )
-import Numeric.Natural ( Natural )
+import Control.Monad ( void, foldM )
+import Control.Exception ( Exception(displayException) )
+import Data.Bifunctor ( first )
 import Data.ByteString ( ByteString )
+import Data.Char ( ord )
 import Data.Text ( Text )
+import Data.Map ( Map )
 import Data.Word ( Word8, Word16, Word32, Word64 )
 import Data.Void ( Void )
-import Data.Default ( def )
 import Text.Ascii ( isAscii )
 import Text.Megaparsec ( Parsec, ParseErrorBundle, (<|>), (<?>))
 
@@ -41,12 +46,16 @@ import Text.Megaparsec ( Parsec, ParseErrorBundle, (<|>), (<?>))
 import Control.Applicative.Permutations
 ---- base
 import Data.Proxy
+import Data.Maybe ( catMaybes, fromMaybe )
 
 -- local imports
 import Data.Fits
+import qualified Data.Fits as Fits
+import qualified Data.Text.Encoding as C8
+import qualified Data.Binary as C8
 
-type Parser = Parsec Void Text
-type ParseErr = ParseErrorBundle Text Void
+type Parser = Parsec Void ByteString
+type ParseErr = ParseErrorBundle ByteString Void
 
 data DataUnitValues
   = FITSUInt8 Word8
@@ -56,101 +65,137 @@ data DataUnitValues
   | FITSFloat32 Float
   | FITSFloat64 Double 
 
-headerBlockParse :: Parser HeaderData
-headerBlockParse = do
-    -- TODO: Parse other sections of the neader for god's sake
-    --  HISTORY and COMMENT along with CONTINUE handling is missing
-    (simple, bitpix, axesDesc, bZero, bScale, ref, obs, instr, tele, object, pCreator, pDate, pEnd) <-
-      runPermutation $
-        (,,,,,,,,,,,,) <$> toPermutation (parseSimple <?> "simple")
-               <*> toPermutation (parseBitPix <?> "bitpix")
-               <*> toPermutation ((parseAxisCount >>= parseNaxes) <?> "axis parsing")
-               <*> toPermutationWithDefault 0 (parseBzero <?> "bzero")
-               <*> toPermutationWithDefault 0 (parseBscale <?> "bscale")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseReference <?> "reference")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseObserver <?> "observer")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseInstrument <?> "instrument")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseTelescope <?> "telescope")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseObject <?> "object")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseCreator <?> "creator")
-               <*> toPermutationWithDefault (StringValue NullString Nothing) (parseDate <?> "date")
-               <*> toPermutation (parseEnd <?> "end")
-    return defHeader { simpleFormat = simple
-                     , bitPixFormat = bitpix
-                     , axes = axesDesc
-                     , referenceString = ref
-                     , observerIdentifier = obs
-                     , instrumentIdentifier = instr
-                     , telescopeIdentifier = tele
-                     , objectIdentifier = object
-                     , observationDate = pDate
-                     , authorIdentifier = pCreator }
-  where
-    defHeader = def :: HeaderData
 
-parseSimple :: Parser SimpleFormat
-parseSimple = M.string' "simple" >> parseEquals
-    >> ((conformParse >> consumeDead >> return Conformant)
-    <|> (nonConformParse >> consumeDead >> return NonConformant))
-  where
-    conformParse = M.char' 't'
-    nonConformParse = M.anySingle
+toWord :: Char -> Word8
+toWord = fromIntegral . ord
 
-parseEquals :: Parser ()
-parseEquals = M.space >> M.char '=' >> M.space
+wordsText :: [Word8] -> Text
+wordsText = TE.decodeUtf8 . BS.pack
 
-parseBitPix :: Parser BitPixFormat
-parseBitPix  = M.string' "bitpix" >> parseEquals
-    >> ((M.chunk "8" >> consumeDead >> return EightBitInt)
-    <|> (M.chunk "16" >> consumeDead >> return SixteenBitInt)
-    <|> (M.chunk "32" >> consumeDead >> return ThirtyTwoBitInt)
-    <|> (M.chunk "64" >> consumeDead >> return SixtyFourBitInt)
-    <|> (M.chunk "-32" >> consumeDead >> return ThirtyTwoBitFloat)
-    <|> (M.chunk "-64" >> consumeDead >> return SixtyFourBitFloat))
 
-parseAxisCount :: Parser Natural
-parseAxisCount = M.string' "naxis" >> parseEquals >> parseNatural
+-- | Consumes ALL header blocks until end, then all remaining space
+parseHeader :: Parser (Map Keyword Value)
+parseHeader = do
+    pairs <- M.manyTill parseRecordLine (M.string' "end")
+    M.space -- consume space padding all the way to the end of the next 2880 bytes header block
+    return $ Map.fromList $ catMaybes pairs
 
-parseNaxes :: Natural -> Parser [Axis]
-parseNaxes n | n == 0 = return []
-parseNaxes n          = do
-    axisNum <- M.string' "naxis" >> parseNatural
-    elemCount <- parseEquals >> parseNatural
-    ([buildAxis axisNum elemCount] ++) <$> parseNaxes (n - 1)
-  where
-      defAxis = def :: Axis
-      buildAxis an ec = defAxis { axisNumber = fromIntegral an
-                                , axisElementCount = fromIntegral ec }
+parseRecordLine :: Parser (Maybe (Keyword, Value))
+parseRecordLine = do
+    M.try $ Just <$> parseKeywordRecord
+    <|> Nothing <$ parseLineComment
+    <|> Nothing <$ M.string' (BS.replicate hduRecordLength (toWord ' '))
 
-parseBzero :: Parser Int
-parseBzero = M.string' "bzero" >> parseEquals >> parseInteger
+-- | Combinator to allow for parsing a record with inline comments
+withComments :: Parser a -> Parser a
+withComments parse = do
+    start <- parsePos
+    a <- parse
+    M.space
+    M.optional $ parseInlineComment start
+    M.space
+    return a
 
-parseBscale :: Parser Int
-parseBscale = M.string' "bscale" >> parseEquals >> parseInteger
+parseKeywordRecord :: Parser (Keyword, Value)
+parseKeywordRecord = withComments parseKeywordValue
 
-parseReference :: Parser StringValue
-parseReference = M.string' "referenc" >> parseEquals >> parseStringValue
+-- | Parses the specified keyword
+parseKeywordRecord' :: ByteString -> Parser a -> Parser a
+parseKeywordRecord' k pval = withComments $ do
+    M.string' k
+    parseEquals
+    pval
 
-parseObserver :: Parser StringValue
-parseObserver = M.string' "observer" >> parseEquals >> parseStringValue
+parseKeywordValue :: Parser (Keyword, Value)
+parseKeywordValue = do
+    key <- parseKeyword
+    parseEquals
+    val <- parseValue
+    return (key, val)
 
-parseInstrument :: Parser StringValue
-parseInstrument = M.string' "instrume" >> parseEquals >> parseStringValue
+parseInlineComment :: Int -> Parser Comment
+parseInlineComment start = do
+    M.char $ toWord '/'
+    M.space
+    com <- parsePos
+    let end = start + hduRecordLength
+    let rem = end - com
+    c <- M.count rem M.anySingle
+    return $ Comment (wordsText c)
 
-parseTelescope :: Parser StringValue
-parseTelescope = M.string' "telescop" >> parseEquals >> parseStringValue
+parseLineComment :: Parser Comment
+parseLineComment = do
+    let keyword = "COMMENT " :: ByteString
+    M.string' keyword
+    c <- M.count (hduRecordLength - BS.length keyword) M.anySingle
+    return $ Comment (wordsText c)
 
-parseObject :: Parser StringValue
-parseObject = M.string' "object" >> parseEquals >> parseStringValue
+-- | Anything but a space or equals
+parseKeyword :: Parser Keyword
+parseKeyword = Keyword . wordsText <$> M.some (M.noneOf $ fmap toWord [' ', '='])
 
-parseCreator :: Parser StringValue
-parseCreator = M.string' "creator" >> parseEquals >> parseStringValue
+    
 
-parseDate :: Parser StringValue
-parseDate = M.string' "date" >> parseEquals >> parseStringValue
+parseValue :: Parser Value
+parseValue =
+    -- try is required here because Megaparsec doesn't automatically backtrack if the parser consumes anything
+    M.try (Float <$> parseFloat)
+    <|> M.try (Integer <$> parseInt)
+    <|> (Logic <$> parseLogic)
+    <|> (String <$> parseStringContinue)
+
+parseInt :: Num a => Parser a
+parseInt = MBL.signed M.space MBL.decimal
+
+parseFloat :: Parser Float
+parseFloat = MBL.signed M.space MBL.float
+
+parseLogic :: Parser LogicalConstant
+parseLogic = do
+    M.string' "T"
+    return T
+
+parseStringContinue :: Parser Text
+parseStringContinue = do
+    t <- parseStringValue
+
+    mc <- M.optional $ do
+      M.string' "CONTINUE"
+      M.space
+      parseStringContinue
+
+    case mc of
+      Nothing -> return t
+      Just tc -> return $ T.dropWhileEnd (=='&') t <> tc
+
+parseStringValue :: Parser Text
+parseStringValue = do
+    -- The rules are weird, NULL means a NULL string, '' is an empty
+    -- string, a ' followed by a bunch of spaces and a close ' is
+    -- considered an empty string, and trailing whitespace is ignored
+    -- within the quotes, but not leading spaces.
+    ls <- M.between (M.char quote) (M.char quote) $ M.many $ M.anySingleBut quote
+    consumeDead
+    return (T.stripEnd $ wordsText ls)
+    where quote = toWord '\''
+
+
+
+requireKeyword :: Keyword -> Header -> Parser Value
+requireKeyword k kvs = do
+    case Fits.lookup k kvs of
+      Nothing -> fail $ "Missing: " <> show k
+      Just v -> return v
+
+requireNaxis :: Header -> Parser Int
+requireNaxis kvs = do
+    v <- requireKeyword "NAXIS" kvs
+    case v of
+      Integer n -> return n
+      _ -> fail "Invalid NAXIS header"
 
 skipEmpty :: Parser ()
-skipEmpty = void (M.many $ M.satisfy ('\0' ==))
+skipEmpty = void (M.many $ M.satisfy (toWord '\0' ==))
 
 consumeDead :: Parser ()
 consumeDead = M.space >> skipEmpty
@@ -158,62 +203,99 @@ consumeDead = M.space >> skipEmpty
 parseEnd :: Parser ()
 parseEnd = M.string' "end" >> M.space <* M.eof
 
-parseNatural :: Parser Natural
-parseNatural = do
-    v <- MCL.decimal
-    consumeDead
-    return $ fromIntegral v
+parseEquals :: Parser ()
+parseEquals = M.space >> M.char (toWord '=') >> M.space
 
-parseInteger :: Parser Int
-parseInteger = do
-    v <- MCL.decimal
-    consumeDead
-    return v
+parsePos :: Parser Int
+parsePos = MP.unPos . MP.sourceColumn <$> M.getSourcePos
 
-parseStringValue :: Parser StringValue
-parseStringValue = do 
-    -- The rules are weird, NULL means a NULL string, '' is an empty
-    -- string, a ' followed by a bunch of spaces and a close ' is
-    -- considered an empty string, and trailing whitespace is ignored
-    -- within the quotes, but not leading spaces.
-    ls <- M.between (M.char '\'') (M.char '\'') $ M.many $ M.anySingleBut '\''
-    consumeDead
-    let v = M.tokensToChunk (Proxy :: Proxy Text) ls
-    if T.length v < 1
-      then return (StringValue EmptyString Nothing)
-      else return (StringValue DataString (Just v))
 
-countHeaderDataUnits :: ByteString -> IO Natural
-countHeaderDataUnits bs = fromIntegral . length <$> getAllHDUs bs
+parseBitPix :: Parser BitPixFormat
+parseBitPix = do
+    v <- parseKeywordRecord' "BITPIX" parseValue
+    toBitpix v
+    where
+      toBitpix (Integer 8) = return EightBitInt
+      toBitpix (Integer 16) = return SixteenBitInt
+      toBitpix (Integer 32) = return ThirtyTwoBitInt
+      toBitpix (Integer 64) = return SixtyFourBitInt
+      toBitpix (Integer (-32)) = return ThirtyTwoBitFloat
+      toBitpix (Integer (-64)) = return SixtyFourBitFloat
+      toBitpix _ = fail "Invalid BITPIX header"
 
--- TODO: make the recursive case work. Currently limited to one HDU.
--- The current issue is that when the parser fails on an HDU parse, it
--- blows them all up instead of accepting the valid parsings.
-getAllHDUs :: ByteString -> IO [HeaderDataUnit]
-getAllHDUs bs = do
-    (hdu, rest) <- getOneHDU bs
-    return [hdu]
---    if BS.length rest < hduBlockSize then return [hdu] else return [hdu]
+parseNaxes :: Parser Axes
+parseNaxes = do
+    n <- parseKeywordRecord' "NAXIS" parseInt
+    ax <- mapM parseN [1..n]
+    return $ Axes ax
 
-getOneHDU :: ByteString -> IO (HeaderDataUnit, ByteString)
-getOneHDU bs =
-    if isAscii header
-      then
-        case M.runParser headerBlockParse "FITS" (TE.decodeUtf8 header) of
-          Right mainHeader -> do
-            let (dataUnit, remainder) = BS.splitAt (fromIntegral $ dataSize mainHeader) rest
-            return (HeaderDataUnit mainHeader dataUnit, remainder)
-          Left e -> let err = M.errorBundlePretty e in error err
-      else error "Header data is not ASCII. Please Check your input file and try again"
+    where
+      parseN :: Int -> Parser Int
+      parseN n = withComments $ do
+        M.string' "NAXIS"
+        M.string' $ BS.pack $ map toWord (show n)
+        parseEquals
+        parseInt
+
+-- | We don't parse simple here, because it isn't required on all HDUs
+parseDimensions :: Parser Dimensions
+parseDimensions = do
+    bp <- parseBitPix
+    ax <- parseNaxes
+    return $ Dimensions { bitpix = bp, axes = ax }
+
+parsePrimary :: Parser HeaderDataUnit
+parsePrimary = do
+    parseKeywordRecord' "SIMPLE" parseLogic
+    dm <- M.lookAhead parseDimensions
+    hd <- parseHeader
+    dt <- parseMainData dm
+    return $ HeaderDataUnit { header = Header hd, extension = Primary, mainData = dt, dimensions = dm }
+
+parseImage :: Parser HeaderDataUnit
+parseImage = do
+    withComments $ M.string' "XTENSION= 'IMAGE   '"
+    dm <- M.lookAhead parseDimensions
+    hd <- parseHeader
+    dt <- parseMainData dm
+    return $ HeaderDataUnit { header = Header hd, extension = Image, mainData = dt, dimensions = dm }
+
+parseBinTable :: Parser HeaderDataUnit
+parseBinTable = do
+    (dm, pc) <- M.lookAhead parseBinTableKeywords
+    hd <- parseHeader
+    dt <- parseMainData dm
+    hp <- parseBinTableHeap
+    let tab = BinTable pc hp
+    return $ HeaderDataUnit { header = Header hd, extension = tab, mainData = dt, dimensions = dm }
+    where
+      parseBinTableHeap = return ""
+
+parseBinTableKeywords :: Parser (Dimensions, Int)
+parseBinTableKeywords = do 
+  withComments $ M.string' "XTENSION= 'BINTABLE'"
+  sz <- parseDimensions
+  pc <- parseKeywordRecord' "PCOUNT" parseInt
+  return (sz, pc)
+
+parseMainData :: Dimensions -> Parser ByteString
+parseMainData size = do
+    let len = dataSize size
+    M.takeP (Just ("Data Array of " <> show len <> " Bytes")) (fromIntegral len)
+
+parseHDU :: Parser HeaderDataUnit
+parseHDU =
+    parsePrimary <|> parseImage <|> parseBinTable
+
+parseHDUs :: Parser [HeaderDataUnit]
+parseHDUs = do
+    M.many parseHDU
+
+dataSize :: Dimensions -> Int
+dataSize h = size h.bitpix * count h.axes
   where
-    (header, rest) = BS.splitAt hduBlockSize bs
+    count (Axes []) = 0
+    count (Axes ax) = fromIntegral $ product ax
+    size = fromIntegral . bitPixToByteSize
 
-dataSize :: HeaderData -> Natural
-dataSize h = paddedsize
-  where
-    axesCount = length $ axes h
-    wordCount  = product $ map axisElementCount $ axes h
-    wordsize = fromIntegral . bitPixToWordSize $ bitPixFormat h
-    datasize = wordsize * wordCount
-    padding = if axesCount == 0 then 0 else fromIntegral hduBlockSize - datasize `mod` fromIntegral hduBlockSize
-    paddedsize = fromIntegral (datasize + padding)
+

@@ -29,7 +29,7 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
-      - data-default
+      - containers
       - text
       - megaparsec
       - text-latin1
@@ -50,3 +50,18 @@ executables:
     - fast-logger
     - vector
     - statistics
+
+
+tests:
+  fits-tests:
+    source-dirs: test
+    main: Spec.hs
+    dependencies:
+    - fits-parse
+    - containers
+    - tasty
+    - tasty-hunit
+    - text
+    - megaparsec
+    - mtl
+
