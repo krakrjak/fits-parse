@@ -1,7 +1,7 @@
 {-|
 Module      : Data.Fits.MegaParser
 Description : MegaParsec based parser for an HDU.
-Copyright   : (c) Zac Slade, 2018
+Copyright   : (c) Zac Slade, 2023
 License     : BSD2
 Maintainer  : krakrjak@gmail.com
 Stability   : experimental

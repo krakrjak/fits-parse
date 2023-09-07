@@ -1,7 +1,7 @@
 {-|
 Module      : Data.Fits
 Description : Types for FITS Data Units
-Copyright   : (c) Zac Slade, 2018
+Copyright   : (c) Zac Slade, 2023
 License     : BSD2
 Maintainer  : krakrjak@gmail.com
 Stability   : experimental
