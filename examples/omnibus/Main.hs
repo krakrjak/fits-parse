@@ -19,15 +19,20 @@ import qualified Data.Vector as V
 ---- statistics
 import Statistics.Sample ( range, mean, variance, stdDev, stdErrMean )
 
+---- fastlogger
 import System.Log.FastLogger( TimedFastLogger, ToLogStr, LogType'( LogStderr )
                             , defaultBufSize, newTimeCache, simpleTimeFormat
                             , toLogStr, newTimedFastLogger, withTimedFastLogger )
 
+---- microlens
+import Lens.Micro ((^.))
 
 -- local library imports
-import Data.Fits ( HeaderDataUnit(..), HeaderData(..), Axis(..)
-                 , parsePix, isBitPixInt, isBitPixFloat, pixsUnwrapI, pixsUnwrapD )
-import Data.Fits.MegaParser ( getAllHDUs )
+import qualified Data.Fits as FITS
+import Data.Fits ( HeaderDataUnit(..), dimensions, extension, mainData
+                 , Axes, Dimensions(..), axes, bitpix
+                 , pixDimsByCol, parsePix, isBitPixInt, isBitPixFloat, pixsUnwrapI, pixsUnwrapD )
+import Data.Fits.Read ( readHDUs )
 
 -- | Paramaterized input type for files or standard input.
 data Input = FileInput FilePath -- ^ The 'FileInput' constructor needs a path name
@@ -86,9 +91,11 @@ workOnFITS (FitsConfig i o) = do
     withTimedFastLogger timeCache (LogStderr defaultBufSize) $ \logger -> do
         fits <- bs i
         myLog logger $ "[DEBUG] input file size " ++ show (BS.length fits) ++ " bytes\n"
-        hdus <- getAllHDUs fits
-        myLog logger ("[DEBUG] found " ++ show (length hdus) ++ " hdu record(s)\n")
-        mapM_ (processHDU logger) hdus
+        case readHDUs fits of
+          Left err -> myLog logger ("[ERROR] cannot parse HDUs " ++ show err)
+          Right hdus -> do
+            myLog logger ("[DEBUG] found " ++ show (length hdus) ++ " hdu record(s)\n")
+            mapM_ (processHDU logger) hdus
   where
     bs (FileInput f) = BS.readFile f
     bs StdInput = BS.hGetContents stdin
@@ -97,9 +104,9 @@ processHDU :: TimedFastLogger -> HeaderDataUnit -> IO ()
 processHDU logger hdu = do
     myLog logger $ "[DEBUG] Bit Format " ++ show bpf ++ "\n"
     myLog logger $ "[DEBUG] data block size " ++ show (BS.length pd) ++ " bytes\n"
-    myLog logger $ "[DEBUG] " ++ show (length ax) ++ " Axes\n"
-    unless (null ax) (mapM_ logAxes ax)
-    let pixCount = foldr (\x acc -> axisElementCount x * acc) 1 ax
+    myLog logger $ "[DEBUG] " ++ show (length (hdu ^. dimensions . axes)) ++ " Axes\n"
+    unless (null ax) (mapM_ logAxes (hdu ^. dimensions . axes))
+    let pixCount = sum (pixDimsByCol $ (hdu ^. dimensions . axes))
     pixs <- parsePix pixCount bpf (LBS.fromStrict pd)
     let pxsI = if isBitPixInt bpf then pixsUnwrapI bpf pixs else []
         pxsD = if isBitPixFloat bpf then pixsUnwrapD bpf pixs else []
@@ -117,24 +124,24 @@ processHDU logger hdu = do
         myLog logger "[DEBUG] skipping bitmap analysis.\n"
 
   where
-    hd = headerData hdu
-    pd = payloadData hdu
-    ax = axes hd
-    bpf = bitPixFormat hd
+    hd = hdu ^. FITS.header
+    pd = hdu ^. mainData
+    ax = hdu ^. dimensions . axes
+    bpf = hdu ^. dimensions . bitpix
     logAxes a = myLog logger $ "[DEBUG] Axis: "
-                            ++ show (axisNumber a)
+                            ++ show a
                             ++ " count: "
-                            ++ show (axisElementCount a) ++ "\n"
+                            ++ show a ++ "\n"
 
 {- | If we happen to be working in floating point 2D, let's try the
      following.
 -}
 bitMapProcess :: TimedFastLogger
-              -> [Axis]          -- ^ Metadata about the column oriented axes
+              -> Axes          -- ^ Metadata about the column oriented axes
               -> V.Vector Double -- ^ Data is stored in column-row major order
               -> IO ()
-bitMapProcess logger []  _    = myLog logger "[ERROR] BitMap processing run with no axes.\n"
-bitMapProcess logger [_] _    = myLog logger "[ERROR] BitMap processing run with only one axis.\n"
+bitMapProcess logger []    _   = myLog logger "[ERROR] BitMap processing run with no axes.\n"
+bitMapProcess logger [_]   _   = myLog logger "[ERROR] BitMap processing run with only one axis.\n"
 bitMapProcess logger (y:x) v = do
   myLog logger $ "[DEBUG] Mean:     " ++ show (mean v) ++ "\n"
   myLog logger $ "[DEBUG] Range:    " ++ show (range v) ++ "\n"
