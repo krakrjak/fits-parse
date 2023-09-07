@@ -37,7 +37,6 @@ library:
       - text
       - megaparsec
       - text-latin1
-      - parser-combinators
       - binary
 
 executables:

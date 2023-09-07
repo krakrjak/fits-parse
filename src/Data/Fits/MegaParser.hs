@@ -11,48 +11,66 @@ Parsing rules for an HDU in a FITS file.
 
 {-# OPTIONS_HADDOCK hide #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE OverloadedRecordDot #-}
 
 module Data.Fits.MegaParser where
 
 -- qualified imports
+---- bytestring
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BS ( c2w )
+---- containers
+import qualified Data.Map.Lazy as Map
+---- megaparsec
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Stream as M
 import qualified Text.Megaparsec.Pos as MP
 import qualified Text.Megaparsec.Byte as M
 import qualified Text.Megaparsec.Byte.Lexer as MBL
+---- text
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import qualified Data.Map.Lazy as Map
-
--- explicit imports
-import Control.Applicative ( (<$>) )
-import Control.Monad ( void, foldM )
-import Control.Exception ( Exception(displayException) )
-import Data.Bifunctor ( first )
-import Data.ByteString ( ByteString )
-import Data.Char ( ord )
-import Data.Text ( Text )
-import Data.Map ( Map )
-import Data.Word ( Word8, Word16, Word32, Word64 )
-import Data.Void ( Void )
-import Text.Ascii ( isAscii )
-import Text.Megaparsec ( Parsec, ParseErrorBundle, (<|>), (<?>))
-
--- full module imports
----- parser-combinators
-import Control.Applicative.Permutations
----- base
-import Data.Proxy
-import Data.Maybe ( catMaybes, fromMaybe )
-
--- local imports
-import Data.Fits
+---- local imports
 import qualified Data.Fits as Fits
 import qualified Data.Text.Encoding as C8
 import qualified Data.Binary as C8
+
+
+-- symbol imports
+---- bytestring
+import Data.ByteString ( ByteString )
+---- containers
+import Data.Map ( Map )
+---- text
+import Data.Text ( Text )
+---- megaparsec
+import Text.Ascii ( isAscii )
+import Text.Megaparsec ( Parsec, ParseErrorBundle, (<|>), (<?>))
+---- microlens
+import Lens.Micro ((^.))
+---- base
+import Control.Applicative ( (<$>) )
+import Control.Exception ( Exception(displayException) )
+import Control.Monad ( void, foldM )
+import Data.Bifunctor ( first )
+import Data.Char ( ord )
+import Data.Maybe ( catMaybes, fromMaybe )
+import Data.Word ( Word8, Word16, Word32, Word64 )
+import Data.Void ( Void )
+---- local imports
+import Data.Fits
+  ( Axes
+  , Comment(Comment)
+  , Dimensions(Dimensions)
+  , Header(Header)
+  , HeaderDataUnit(HeaderDataUnit)
+  , Keyword(Keyword)
+  , BitPixFormat(..)
+  , Extension(..)
+  , LogicalConstant(..)
+  , Value(..)
+  , bitPixToByteSize, hduRecordLength
+  )
+
 
 type Parser = Parsec Void ByteString
 type ParseErr = ParseErrorBundle ByteString Void
@@ -134,8 +152,6 @@ parseLineComment = do
 parseKeyword :: Parser Keyword
 parseKeyword = Keyword . wordsText <$> M.some (M.noneOf $ fmap toWord [' ', '='])
 
-    
-
 parseValue :: Parser Value
 parseValue =
     -- try is required here because Megaparsec doesn't automatically backtrack if the parser consumes anything
@@ -178,8 +194,6 @@ parseStringValue = do
     consumeDead
     return (T.stripEnd $ wordsText ls)
     where quote = toWord '\''
-
-
 
 requireKeyword :: Keyword -> Header -> Parser Value
 requireKeyword k kvs = do
@@ -226,23 +240,20 @@ parseBitPix = do
 parseNaxes :: Parser Axes
 parseNaxes = do
     n <- parseKeywordRecord' "NAXIS" parseInt
-    ax <- mapM parseN [1..n]
-    return $ Axes ax
-
-    where
-      parseN :: Int -> Parser Int
-      parseN n = withComments $ do
-        M.string' "NAXIS"
-        M.string' $ BS.pack $ map toWord (show n)
-        parseEquals
-        parseInt
+    mapM parseN [1..n]
+  where
+    parseN :: Int -> Parser Int
+    parseN n = withComments $ do
+      M.string' "NAXIS"
+      M.string' $ BS.pack $ map toWord (show n)
+      parseEquals
+      parseInt
 
 -- | We don't parse simple here, because it isn't required on all HDUs
 parseDimensions :: Parser Dimensions
 parseDimensions = do
     bp <- parseBitPix
-    ax <- parseNaxes
-    return $ Dimensions { bitpix = bp, axes = ax }
+    Dimensions bp <$> parseNaxes
 
 parsePrimary :: Parser HeaderDataUnit
 parsePrimary = do
@@ -250,7 +261,7 @@ parsePrimary = do
     dm <- M.lookAhead parseDimensions
     hd <- parseHeader
     dt <- parseMainData dm
-    return $ HeaderDataUnit { header = Header hd, extension = Primary, mainData = dt, dimensions = dm }
+    return $ HeaderDataUnit (Header hd) dm Primary dt
 
 parseImage :: Parser HeaderDataUnit
 parseImage = do
@@ -258,7 +269,7 @@ parseImage = do
     dm <- M.lookAhead parseDimensions
     hd <- parseHeader
     dt <- parseMainData dm
-    return $ HeaderDataUnit { header = Header hd, extension = Image, mainData = dt, dimensions = dm }
+    return $ HeaderDataUnit (Header hd) dm Image dt
 
 parseBinTable :: Parser HeaderDataUnit
 parseBinTable = do
@@ -267,7 +278,7 @@ parseBinTable = do
     dt <- parseMainData dm
     hp <- parseBinTableHeap
     let tab = BinTable pc hp
-    return $ HeaderDataUnit { header = Header hd, extension = tab, mainData = dt, dimensions = dm }
+    return $ HeaderDataUnit (Header hd) dm tab dt
     where
       parseBinTableHeap = return ""
 
@@ -292,10 +303,8 @@ parseHDUs = do
     M.many parseHDU
 
 dataSize :: Dimensions -> Int
-dataSize h = size h.bitpix * count h.axes
+dataSize (Dimensions bitpix axes) = size bitpix * count axes
   where
-    count (Axes []) = 0
-    count (Axes ax) = fromIntegral $ product ax
+    count [] = 0
+    count ax = fromIntegral $ product ax
     size = fromIntegral . bitPixToByteSize
-
-
