@@ -31,6 +31,7 @@ module Data.Fits
 
       -- ** Header Data Types
     , Header(..)
+    , keywords -- ^ lens for Keyword Map in Header
     , Extension(..)
     , Data.Fits.lookup
     , Keyword(..)
