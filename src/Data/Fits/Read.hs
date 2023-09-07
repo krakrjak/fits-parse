@@ -5,14 +5,17 @@ module Data.Fits.Read where
 import Control.Exception ( displayException )
 import Data.Bifunctor ( first )
 import Data.ByteString ( ByteString )
-import Data.Fits as Fits
-import Data.Fits.MegaParser
 import Data.Maybe ( listToMaybe )
 import Data.Text ( Text, unpack )
 import qualified Data.ByteString as BS
 import qualified Data.Map.Lazy as Map
 import qualified Text.Megaparsec as M
 import Data.List ( find )
+
+---- local imports
+import Data.Fits as Fits
+import Data.Fits.MegaParser (ParseErr(..), parseHDU, parseHDUs)
+import Data.Fits (HeaderDataUnit(..))
 
 
 -- | Parse and read all HDUs in the input string
@@ -28,14 +31,12 @@ readPrimaryHDU bs = do
 -- | Look up a keyword and parse it into the expected format
 getKeyword :: Text -> (Value -> Maybe a) -> HeaderDataUnit -> Either String a
 getKeyword k fromVal hdu = do
-  let key = Keyword k
-  v <- maybeError (MissingKey key) $ Map.lookup key hdu.header.keywords
-  a <- maybeError (InvalidKey key v) $ fromVal v
-  return a
-
+    let key = Keyword k
+    v <- maybeError (MissingKey key) $ Map.lookup key (_keywords . _header $ hdu)
+    maybeError (InvalidKey key v) $ fromVal v
   where
     findKey :: Keyword -> Header -> Maybe Value
-    findKey key h = Map.lookup key h.keywords
+    findKey key h = Map.lookup key (_keywords h)
 
 -- | Get the HDU at an index and fail with a readable error
 getHDU :: String -> Int -> [HeaderDataUnit] -> Either String HeaderDataUnit
@@ -64,10 +65,6 @@ instance Show FitsError where
     show (InvalidKey (Keyword k) val) = "Keyword: " <> unpack k <> " was invalid. Got " <> show val
     show (MissingHDU name n) = "HDU Missing: " <> name <> " at index " <> show n
     show (InvalidData err) = "Data Invalid: " <> err
-
-
-
-
 
 -- -- | An example of how to use the library
 -- example :: IO ()

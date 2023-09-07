@@ -9,12 +9,11 @@ Stability   : experimental
 Definitions for the data types needed to parse an HDU in a FITS block.
 -}
 
-{-# LANGUAGE PartialTypeSignatures, DataKinds, ExistentialQuantification
-  , ScopedTypeVariables, GADTs
-  , GeneralizedNewtypeDeriving
-  , OverloadedRecordDot
-  , NoFieldSelectors
-  , OverloadedStrings, TypeFamilies #-}
+{-# LANGUAGE
+    GeneralizedNewtypeDeriving
+  , OverloadedStrings
+  , TemplateHaskell
+#-}
 module Data.Fits
     ( -- * Data payload functions
       parsePix
@@ -23,6 +22,11 @@ module Data.Fits
 
       -- * Main data types
     , HeaderDataUnit(..)
+      -- ^ lens exports
+    , dimensions
+    , header
+    , extension
+    , mainData
     , Pix(..)
 
       -- ** Header Data Types
@@ -34,16 +38,20 @@ module Data.Fits
     , toInt, toFloat, toText
     , LogicalConstant(..)
     , Dimensions(..)
+    , axes
+    , bitpix
     , Comment(..)
     , SimpleFormat(..)
     , BitPixFormat(..)
-    , Axes(..)
+    , Axes
 
       -- * Utility
     , isBitPixInt
     , isBitPixFloat
     , bitPixToWordSize
     , bitPixToByteSize
+    , pixDimsByCol
+    , pixDimsByRow
 
       -- ** Constants
     , hduRecordLength
@@ -71,6 +79,11 @@ import Data.List ( intercalate )
 
 ---- bytestring
 import Data.ByteString ( ByteString )
+
+---- microlens
+import Lens.Micro ((^.))
+---- microlens-th
+import Lens.Micro.TH ( makeLenses )
 
 
 import Data.Binary
@@ -105,15 +118,33 @@ hduBlockSize = hduRecordLength * hduMaxRecords
     a 'NonConformant' format. At this time only the 'Conformant', T, format
     is supported.
 -}
-data SimpleFormat = Conformant
+data SimpleFormat = Conformant | NonConformant
     deriving (Eq, Show)
                     -- ^ Value of SIMPLE=T in the header. /supported/
                     -- NonConformat
                     -- ^ Value of SIMPLE=F in the header. /unsupported/
 
--- | 'Axes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes
-newtype Axes = Axes [Int]
-    deriving (Semigroup, Monoid, Show, Eq)
+{-| Direct encoding of a `Bool` for parsing `Value` -}
+data LogicalConstant = T | F
+    deriving (Show, Eq)
+
+{-| The `Text` wrapper for HDU the keyword data for lines of the form:
+    KEYWORD=VALUE
+-}
+newtype Keyword = Keyword Text
+    deriving (Show, Eq, Ord, IsString)
+
+{-| `Value` datatype for discriminating valid FITS KEYWORD=VALUE types in an HDU. -}
+data Value
+    = Integer Int
+    | Float Float
+    | String Text
+    | Logic LogicalConstant
+    deriving (Show, Eq)
+
+
+{-| 'Axes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes -}
+type Axes = [Int]
 
 {-| The 'BitPixFormat' is the nitty gritty of how the 'Axis' data is layed
     out in the file. The standard recognizes six formats: unsigned 8 bit
@@ -239,7 +270,7 @@ parsePix c bpf bs = return $ runGet (getPixs c bpf) bs
     axes dimensions.
 -}
 pixDimsByCol :: Axes -> [Int]
-pixDimsByCol (Axes as) = as
+pixDimsByCol = id
 
 {- `pixDimsByRow` takes a list of Axis and gives a row-column major list of
     axes dimensions.
@@ -251,12 +282,13 @@ pixDimsByRow = reverse . pixDimsByCol
     metadata, but also specifying how to make sense of the binary payload
     that starts 2,880 bytes after the start of the 'HeaderData'.
 -}
-newtype Header = Header { keywords :: Map Keyword Value }
+newtype Header = Header { _keywords :: Map Keyword Value }
     deriving (Eq)
+$(makeLenses ''Header)
 
 instance Show Header where
   show h =
-    let kvs = Map.toList h.keywords :: [(Keyword, Value)]
+    let kvs = Map.toList (h ^. keywords) :: [(Keyword, Value)]
     in T.unpack $ T.intercalate "\n" $ fmap line kvs
     where
       --
@@ -278,7 +310,7 @@ instance Show Header where
       val (String t) = T.unpack t
 
 lookup :: Keyword -> Header -> Maybe Value
-lookup k h = Map.lookup k h.keywords
+lookup k h = Map.lookup k (h ^. keywords)
 
 
 data Extension
@@ -299,18 +331,6 @@ instance Show Extension where
     show Image = "Image"
     show (BinTable p _) = "BinTable: heap = " <> show p <> " Bytes"
 
-newtype Keyword = Keyword Text
-    deriving (Show, Eq, Ord, IsString)
-
-data Value
-    = Integer Int
-    | Float Float
-    | String Text
-    | Logic LogicalConstant
-    deriving (Show, Eq)
-
-data LogicalConstant = T
-    deriving (Show, Eq)
 
 toInt :: Value -> Maybe Int
 toInt (Integer i) = Just i
@@ -328,9 +348,10 @@ toText _ = Nothing
  -  can know how long the data array is
 -}
 data Dimensions = Dimensions
-    { bitpix :: BitPixFormat
-    , axes :: Axes
+    { _bitpix :: BitPixFormat
+    , _axes :: Axes
     } deriving (Show, Eq)
+$(makeLenses ''Dimensions)
 
 newtype Comment = Comment Text
     deriving (Show, Eq, Ord, IsString)
@@ -340,16 +361,18 @@ newtype Comment = Comment Text
     encoded alongside the data payload.
 -}
 data HeaderDataUnit = HeaderDataUnit
-    { header :: Header         -- ^ The heeader contains metadata about the payload
-    , dimensions :: Dimensions -- ^ This dimensions of the main data array
-    , extension :: Extension   -- ^ Extensions may vary the data format
-    , mainData :: ByteString   -- ^ The main data array
+    { _header :: Header         -- ^ The heeader contains metadata about the payload
+    , _dimensions :: Dimensions -- ^ This dimensions of the main data array
+    , _extension :: Extension   -- ^ Extensions may vary the data format
+    , _mainData :: ByteString   -- ^ The main data array
     }
+    
+$(makeLenses ''HeaderDataUnit)
 
 instance Show HeaderDataUnit where
     show hdu = intercalate "\n" 
       [ "HeaderDataUnit:"
-      , "  headers = " <> show (Map.size hdu.header.keywords)
-      , "  extension = " <> show hdu.extension
-      , "  mainData = " <> show (BS.length hdu.mainData) <> " Bytes"
+      , "  headers = " <> show (Map.size (hdu ^. header . keywords))
+      , "  extension = " <> show (hdu ^. extension)
+      , "  mainData = " <> show (BS.length (hdu ^. mainData)) <> " Bytes"
       ]
