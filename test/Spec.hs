@@ -19,8 +19,9 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Fits as Fits
 -- symbol based imports
 ---- base
+import Control.Monad ( forM_ )
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception (Exception(displayException), throwIO)
-import Control.Monad.Writer
 import Data.List ( unfoldr )
 ---- bytestring
 import Data.ByteString ( ByteString )
@@ -28,6 +29,8 @@ import Data.ByteString ( ByteString )
 import GHC.RTS.Flags (MiscFlags(numIoWorkerThreads))
 ---- microlens
 import Lens.Micro ((^.))
+---- mtl
+import Control.Monad.Writer ( MonadWriter, WriterT, execWriterT, tell)
 ---- tasty
 import Test.Tasty
 import Test.Tasty.HUnit
