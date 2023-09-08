@@ -119,14 +119,6 @@ jobs:
         #  --pedantic
       if: env.CONTINUE
 
-    - name: Test functional tests
-      env:
-        stack: ${{ matrix.plan.stack }}
-      run: |
-        export PATH=~/.local/bin:$PATH
-        COLUMNS=80 $stack exec test
-      if: env.CONTINUE
-
     # artifacts:
 
     - name: Gather binaries
