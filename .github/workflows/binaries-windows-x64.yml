@@ -1,0 +1,122 @@
+# Runs on any push to main and PRs, along with weekly builds on main.
+# Produces optimised windows binaries,
+# using the default stack.yaml's GHC version.
+# Currently runs no tests.
+# Temporarily using nightly-2023-04-24 (ghc-9.4.4) to avoid https://gitlab.haskell.org/ghc/ghc/-/issues/23309
+# This actions script is lightly modified from hledger
+#
+# Not using nightly stackage here...
+
+name: binaries-windows-x64
+env:
+  CONTINUE: true
+
+on:
+  schedule:
+  - cron: "0 07 * * 0"  # sunday midnight pacific
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+
+    - name: Check out
+      uses: actions/checkout@v3
+      # have to fetch everything for git describe for --version
+      with: 
+        fetch-depth: 0        
+
+    - name: Confirm all remaining steps should run
+      run: echo "CONTINUE=true" >> $GITHUB_ENV
+
+    # things to be cached/restored:
+
+    - name: Cache stack global package db
+      id:   stack-global-package-db
+      uses: actions/cache@v3
+      with:
+        path: C:\Users\runneradmin\AppData\Roaming\stack\
+        key: ${{ runner.os }}-appdata-roaming-stack-${{ hashFiles('**.yaml') }}
+        restore-keys: |
+             ${{ runner.os }}-appdata-roaming-stack
+      if: env.CONTINUE
+
+    - name: Cache stack programs dir   # ghc, ghc-included packages and their haddocks, mingw, msys2
+      id:   stack-programs-dir
+      uses: actions/cache@v3
+      with:
+        path: C:\Users\runneradmin\AppData\Local\Programs\stack\
+        # which files signal a change in stack's global db ?
+        # **.yaml includes */package.yaml and stack.yaml* (too many), and hopefully no other changing yamls
+        key: ${{ runner.os }}-appdata-local-programs-stack-${{ hashFiles('**.yaml') }}
+        restore-keys: |
+             ${{ runner.os }}-appdata-local-programs-stack
+      if: env.CONTINUE
+
+    - name: Cache .stack-work
+      uses: actions/cache@v3
+      with:
+        path: .stack-work
+        key: ${{ runner.os }}-stack-work-${{ hashFiles('**.yaml') }}
+        restore-keys: |
+             ${{ runner.os }}-stack-work
+      if: env.CONTINUE
+
+    # actions:
+
+    - name: Install stack
+      run: |
+        curl -sL https://get.haskellstack.org/stable/windows-x86_64.zip -o stack.zip
+        7z x stack.zip stack.exe
+        which stack
+        stack --version
+        which ./stack
+        ./stack --version
+      if: env.CONTINUE
+
+    - name: Install GHC
+      run: |
+        ./stack --no-terminal setup --install-ghc
+      if: env.CONTINUE
+
+    - name: Install haskell deps
+      run: |
+        ./stack --no-terminal build --only-dependencies --dry-run
+        ./stack --no-terminal build --only-dependencies
+      if: env.CONTINUE
+
+    # use whichever GHC is in default stack.yaml
+
+    - name: Build fits-parse, test it and build the omnibus CLI
+      run: |
+        ./stack --no-terminal install --test --force-dirty --ghc-options=-fforce-recomp --ghc-options=-Werror
+      # --ghc-options=-split-sections doesn't work on windows, "too many sections"
+      # --pedantic
+      if: env.CONTINUE
+
+    # artifacts:
+
+    - name: Gather binaries
+      run: |
+        mkdir tmp
+        cd tmp
+        cp /C/Users/runneradmin/AppData/Roaming/local/bin/omnibus.exe .
+        strip omnibus.exe
+      if: env.CONTINUE
+             
+    - name: Create binaries artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: omnibus-windows-x64
+        path: |
+          tmp/omnibus.exe
+      if: env.CONTINUE
