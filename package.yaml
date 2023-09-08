@@ -1,5 +1,5 @@
 name:                fits-parse
-version:             0.3.1
+version:             0.3.2
 synopsis:            Parse FITS files
 description:         Parse and manipulate FITS data natively in Haskell
 homepage:            https://github.com/krakrjak/fits-parse#readme
@@ -17,6 +17,9 @@ extra-source-files:
   - docs/conf.py
   - docs/index.rst
   - docs/examples/omnibus.rst
+  - fits_files/*.fits
+  - fits_files/*.txt
+  - fits_files/nonconformant/*.fits
 
 flags:
   examples:
