@@ -6,7 +6,7 @@
 --   
 --   Parse and manipulate FITS data natively in Haskell
 @package fits-parse
-@version 0.1.0
+@version 0.3.1
 
 
 -- | Definitions for the data types needed to parse an HDU in a FITS block.
@@ -25,56 +25,100 @@ pixsUnwrapI :: BitPixFormat -> [Pix] -> [Int]
 pixsUnwrapD :: BitPixFormat -> [Pix] -> [Double]
 
 -- | The <a>HeaderDataUnit</a> is the full HDU. Both the header information
---   is encoded alongside the <a>Axis</a> payload.
+--   is encoded alongside the data payload.
 data HeaderDataUnit
-HeaderDataUnit :: HeaderData -> ByteString -> HeaderDataUnit
+HeaderDataUnit :: Header -> Dimensions -> Extension -> ByteString -> HeaderDataUnit
 
--- | Just the header part of the HDU
-[headerData] :: HeaderDataUnit -> HeaderData
+-- | The heeader contains metadata about the payload
+[_header] :: HeaderDataUnit -> Header
 
--- | The actual data payload
-[payloadData] :: HeaderDataUnit -> ByteString
+-- | This dimensions of the main data array
+[_dimensions] :: HeaderDataUnit -> Dimensions
+
+-- | Extensions may vary the data format
+[_extension] :: HeaderDataUnit -> Extension
+
+-- | The main data array
+[_mainData] :: HeaderDataUnit -> ByteString
+dimensions :: Lens' HeaderDataUnit Dimensions
+header :: Lens' HeaderDataUnit Header
+extension :: Lens' HeaderDataUnit Extension
+mainData :: Lens' HeaderDataUnit ByteString
+
+-- | Following <a>BitPixFormat</a> we have a tag for integer and floating
+--   point values. We box them up to ease parsing.
+data Pix
+PB :: Int -> Pix
+PI16 :: Int -> Pix
+PI32 :: Int -> Pix
+PI64 :: Int -> Pix
+PF :: Double -> Pix
+PD :: Double -> Pix
 
 -- | The header part of the HDU is vital carrying not only authorship
 --   metadata, but also specifying how to make sense of the binary payload
---   that starts 2,880 bytes after the start of the <a>HeaderData</a>.
-data HeaderData
-HeaderData :: SimpleFormat -> BitPixFormat -> [Axis] -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> StringValue -> HeaderData
+--   that starts 2,880 bytes after the start of the <tt>HeaderData</tt>.
+newtype Header
+Header :: Map Keyword Value -> Header
+[_keywords] :: Header -> Map Keyword Value
+keywords :: Lens' Header (Map Keyword Value)
+data Extension
 
--- | SIMPLE
-[simpleFormat] :: HeaderData -> SimpleFormat
+-- | Any header data unit can use the primary format. The first MUST be
+--   Primary. This is equivalent to having no extension
+Primary :: Extension
 
--- | BITPIX
-[bitPixFormat] :: HeaderData -> BitPixFormat
+-- | An encoded image. PCOUNT and GCOUNT are required but irrelevant
+Image :: Extension
 
--- | Axes metadata
-[axes] :: HeaderData -> [Axis]
+-- | A Binary table. PCOUNT is the number of bytes that follow the data in
+--   the <a>heap</a>
+BinTable :: Int -> ByteString -> Extension
+[pCount] :: Extension -> Int
+[heap] :: Extension -> ByteString
+lookup :: Keyword -> Header -> Maybe Value
 
--- | OBJECT
-[objectIdentifier] :: HeaderData -> StringValue
+-- | The <a>Text</a> wrapper for HDU the keyword data for lines of the
+--   form: KEYWORD=VALUE
+newtype Keyword
+Keyword :: Text -> Keyword
 
--- | DATE
-[observationDate] :: HeaderData -> StringValue
+-- | <a>Value</a> datatype for discriminating valid FITS KEYWORD=VALUE
+--   types in an HDU.
+data Value
+Integer :: Int -> Value
+Float :: Float -> Value
+String :: Text -> Value
+Logic :: LogicalConstant -> Value
+toInt :: Value -> Maybe Int
+toFloat :: Value -> Maybe Float
+toText :: Value -> Maybe Text
 
--- | OBJECT
-[originIdentifier] :: HeaderData -> StringValue
+-- | Direct encoding of a <a>Bool</a> for parsing <a>Value</a>
+data LogicalConstant
+T :: LogicalConstant
+F :: LogicalConstant
 
--- | TELESCOP
-[telescopeIdentifier] :: HeaderData -> StringValue
+-- | When we load a header, we parse the BITPIX and NAXIS(N) keywords so we
+--   - can know how long the data array is
+data Dimensions
+Dimensions :: BitPixFormat -> Axes -> Dimensions
+[_bitpix] :: Dimensions -> BitPixFormat
+[_axes] :: Dimensions -> Axes
+axes :: Lens' Dimensions Axes
+bitpix :: Lens' Dimensions BitPixFormat
+newtype Comment
+Comment :: Text -> Comment
 
--- | INSTRUME
-[instrumentIdentifier] :: HeaderData -> StringValue
+-- | The standard defines two possible values for the SIMPLE keyword, T and
+--   F. The T refers to a <a>Conformant</a> format while F refers to a
+--   <a>NonConformant</a> format. At this time only the <a>Conformant</a>,
+--   T, format is supported.
+data SimpleFormat
+Conformant :: SimpleFormat
+NonConformant :: SimpleFormat
 
--- | OBSERVER
-[observerIdentifier] :: HeaderData -> StringValue
-
--- | CREATOR
-[authorIdentifier] :: HeaderData -> StringValue
-
--- | REFERENC
-[referenceString] :: HeaderData -> StringValue
-
--- | The <a>BitPixFormat</a> is the nitty gritty of how the <a>Axis</a>
+-- | The <a>BitPixFormat</a> is the nitty gritty of how the <tt>Axis</tt>
 --   data is layed out in the file. The standard recognizes six formats:
 --   unsigned 8 bit integer, two's complement binary integers at 16, 32,
 --   and 64 bits along with 32 and 64 bit IEEE floating point formats.
@@ -98,114 +142,9 @@ ThirtyTwoBitFloat :: BitPixFormat
 -- | BITPIX = -64; IEEE double precision floating point of 64 bits
 SixtyFourBitFloat :: BitPixFormat
 
--- | Following <a>BitPixFormat</a> we have a tag for integer and floating
---   point values. We box them up to ease parsing.
-data Pix
-PB :: Int -> Pix
-PI16 :: Int -> Pix
-PI32 :: Int -> Pix
-PI64 :: Int -> Pix
-PF :: Double -> Pix
-PD :: Double -> Pix
-
--- | The standard defines two possible values for the SIMPLE keyword, T and
---   F. The T refers to a <a>Conformant</a> format while F refers to a
---   <a>NonConformant</a> format. At this time only the <a>Conformant</a>,
---   T, format is supported.
-data SimpleFormat
-
--- | Value of SIMPLE=T in the header. <i>supported</i>
-Conformant :: SimpleFormat
-
--- | Value of SIMPLE=F in the header. <i>unsupported</i>
-NonConformant :: SimpleFormat
-
--- | <a>Axis</a> represents a single NAXIS record.
-data Axis
-Axis :: Int -> Int -> Axis
-
--- | The axis number under consideration
-[axisNumber] :: Axis -> Int
-
--- | The number of elements in this axis
-[axisElementCount] :: Axis -> Int
-
--- | There are many types of strings defined in the FITS documentation.
---   Refered to as "character string(s)" in the documentation, they can be
---   null, empty, undefined, or contain characters (printable ASCII only).
-data StringType
-
--- | The NULL character string (e.g. AUTHOR=)
-NullString :: StringType
-
--- | An empty string (e.g. AUTHOR="")
-EmptyString :: StringType
-
--- | Plain ASCII data
-DataString :: StringType
-
--- | A <a>StringValue</a> is a type paired with a possible value.
-data StringValue
-StringValue :: StringType -> Maybe Text -> StringValue
-
--- | Which <a>StringType</a> is this value?
-[stringType] :: StringValue -> StringType
-
--- | The payload of a character string
-[stringValue] :: StringValue -> Maybe Text
-
--- | The FITS standard allows for the encoding of unsigned integers, signed
---   integers, real numbers, and complex numbers. They are always ASCII
---   encoded. See 5.2 of the standard for more details.
-data NumberType
-
--- | HDU ASCII encoded integer number
-IntegerType :: NumberType
-
--- | HDU ASCII encoded real number
-RealType :: NumberType
-
--- | HDU ASCII encoded complex number
-ComplexType :: NumberType
-
--- | Utility data type to help with the ASCII representation of numbers
-data NumberModifier
-
--- | HDU positive number value
-Positive :: NumberModifier
-
--- | HDU negative number value
-Negative :: NumberModifier
-
--- | HDU numeric value is zero, could be positive or negative
-Zero :: NumberModifier
-
--- | <a>NumberValue</a> contains an encoded numeric record from a data
---   field. This data type still needs to be converted into more useful
---   Haskell data types.
-data NumberValue
-NumberValue :: NumberType -> NumberModifier -> Text -> Maybe NumberModifier -> Maybe Text -> Maybe NumberModifier -> Maybe Int -> NumberValue
-
--- | Key to decoding the structure
-[numberType] :: NumberValue -> NumberType
-
--- | Encoding the sign of the real part
-[realModifier] :: NumberValue -> NumberModifier
-
--- | All <a>NumberType</a> have a real part (sign stripped)
-[realPart] :: NumberValue -> Text
-
--- | Encoding the sign of the imaginary part
-[imaginaryModifier] :: NumberValue -> Maybe NumberModifier
-
--- | Only <a>ComplexType</a> have an imaginary part (sign stripped)
-[imaginaryPart] :: NumberValue -> Maybe Text
-
--- | <a>Positive</a>, <a>Negative</a>, or <a>Zero</a>
-[exponentModifier] :: NumberValue -> Maybe NumberModifier
-
--- | All <a>NumberType</a> may have an exponent
-[exponent] :: NumberValue -> Maybe Int
+-- | <a>Axes</a> represents the combination of NAXIS + NAXISn. The spec
+--   supports up to 999 axes
+type Axes = [Int]
 
 -- | This utility functions quickly lets you know if you are dealing with
 --   integer data.
@@ -217,7 +156,13 @@ isBitPixFloat :: BitPixFormat -> Bool
 
 -- | This utility function can be used to get the word count for data in an
 --   HDU.
-bitPixToWordSize :: BitPixFormat -> Natural
+bitPixToWordSize :: BitPixFormat -> Int
+
+-- | This utility function can be used to get the size in bytes of the -
+--   format.
+bitPixToByteSize :: BitPixFormat -> Int
+pixDimsByCol :: Axes -> [Int]
+pixDimsByRow :: Axes -> [Int]
 
 -- | A single record in the HDU is an eighty byte word.
 hduRecordLength :: Int
@@ -230,10 +175,50 @@ hduMaxRecords :: Int
 --   other words 2,880 bytes. These blocks are padded with zeros to this
 --   boundary.
 hduBlockSize :: Int
-instance Data.Default.Class.Default Data.Fits.HeaderData
+instance GHC.Show.Show Data.Fits.HeaderDataUnit
+instance Data.String.IsString Data.Fits.Comment
+instance GHC.Classes.Ord Data.Fits.Comment
+instance GHC.Classes.Eq Data.Fits.Comment
+instance GHC.Show.Show Data.Fits.Comment
+instance GHC.Classes.Eq Data.Fits.Extension
+instance GHC.Classes.Eq Data.Fits.Dimensions
+instance GHC.Show.Show Data.Fits.Dimensions
+instance GHC.Show.Show Data.Fits.Extension
+instance GHC.Show.Show Data.Fits.Header
+instance GHC.Show.Show Data.Fits.SimpleFormat
+instance GHC.Classes.Eq Data.Fits.SimpleFormat
+instance GHC.Classes.Eq Data.Fits.LogicalConstant
+instance GHC.Show.Show Data.Fits.LogicalConstant
+instance Data.String.IsString Data.Fits.Keyword
+instance GHC.Classes.Ord Data.Fits.Keyword
+instance GHC.Classes.Eq Data.Fits.Keyword
+instance GHC.Show.Show Data.Fits.Keyword
+instance GHC.Classes.Eq Data.Fits.Value
+instance GHC.Show.Show Data.Fits.Value
+instance GHC.Classes.Eq Data.Fits.BitPixFormat
+instance GHC.Classes.Eq Data.Fits.Header
 instance GHC.Show.Show Data.Fits.BitPixFormat
-instance Data.Default.Class.Default Data.Fits.Axis
-instance Data.Default.Class.Default Data.Fits.NumberValue
-instance Data.Default.Class.Default Data.Fits.StringValue
-instance GHC.Show.Show Data.Fits.StringValue
-instance GHC.Show.Show Data.Fits.StringType
+
+module Data.Fits.Read
+
+-- | Parse and read all HDUs in the input string
+readHDUs :: ByteString -> Either String [HeaderDataUnit]
+
+-- | Parse and read only the Primary HDU from the input string
+readPrimaryHDU :: ByteString -> Either String HeaderDataUnit
+
+-- | Look up a keyword and parse it into the expected format
+getKeyword :: Text -> (Value -> Maybe a) -> HeaderDataUnit -> Either String a
+
+-- | Get the HDU at an index and fail with a readable error
+getHDU :: String -> Int -> [HeaderDataUnit] -> Either String HeaderDataUnit
+maybeError :: FitsError -> Maybe a -> Either String a
+eitherFail :: MonadFail m => Either String a -> m a
+data FitsError
+ParseError :: ParseErr -> FitsError
+MissingKey :: Keyword -> FitsError
+InvalidKey :: Keyword -> Value -> FitsError
+MissingHDU :: String -> Int -> FitsError
+InvalidData :: String -> FitsError
+instance GHC.Classes.Eq Data.Fits.Read.FitsError
+instance GHC.Show.Show Data.Fits.Read.FitsError
