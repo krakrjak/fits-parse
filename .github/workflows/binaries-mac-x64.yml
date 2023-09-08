@@ -1,0 +1,149 @@
+# Runs on any push or pr, and weekly on main.
+# Produces optimised mac binaries and runs unit/doc/functional tests,
+# using the default stack.yaml's GHC version.
+
+name: binaries-mac-x64
+env:
+  CONTINUE: true
+
+on:
+  schedule:
+  - cron: "0 07 * * 0"  # sunday midnight pacific
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        plan:
+        # - { ghc: "810" , stack: "stack --stack-yaml=stack8.10.yaml" }
+        # XXX func tests in bin should be run only with GHC 8.10 for now (see shelltest below) (?)
+        # - { ghc: "90" , stack: "stack --stack-yaml=stack9.0.yaml" }
+        # - { ghc: "92" , stack: "stack --stack-yaml=stack9.2.yaml" }
+        - { ghc: "94" , stack: "stack --stack-yaml=stack.yaml" }
+
+    steps:
+
+    - name: Check out
+      uses: actions/checkout@v3
+      # have to fetch everything for git describe for --version
+      with: 
+        fetch-depth: 0        
+
+    - name: Check embedded files
+      run: |
+        brew install ripgrep
+        tools/checkembeddedfiles
+      if: env.CONTINUE
+
+    # things to be cached/restored:
+
+    - name: Cache stack global package db
+      id:   stack-global
+      uses: actions/cache@v3
+      with:
+        path: ~/.stack
+        key: ${{ runner.os }}-stack-global-from20220817-${{ hashFiles('**.yaml') }}
+        restore-keys: |
+             ${{ runner.os }}-stack-global-from20220817
+      if: env.CONTINUE
+
+    - name: Cache stack-installed programs in ~/.local/bin
+      id:   stack-programs
+      uses: actions/cache@v3
+      with:
+        path: ~/.local/bin
+        key: ${{ runner.os }}-stack-programs-from20220817-${{ hashFiles('**.yaml') }}
+        restore-keys: |
+             ${{ runner.os }}-stack-programs-from20220817
+      if: env.CONTINUE
+
+    - name: Cache .stack-work
+      uses: actions/cache@v3
+      with:
+        path: .stack-work
+        key: ${{ runner.os }}-stack-work-from20230907-${{ hashFiles('**.yaml') }}
+        restore-keys: |
+             ${{ runner.os }}-stack-work-from20230907
+      if: env.CONTINUE
+
+    - name: Install stack
+      run: |
+        mkdir -p ~/.local/bin
+        export PATH=~/.local/bin:$PATH        
+        if [[ ! -x ~/.local/bin/stack ]]; then brew install gnu-tar; curl -sL https://get.haskellstack.org/stable/osx-x86_64.tar.gz | gtar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'; chmod a+x ~/.local/bin/stack; fi
+        stack --version
+      if: env.CONTINUE
+
+    - name: Install GHC (with stack)
+      env:
+        stack: ${{ matrix.plan.stack }}
+      run: |
+        $stack setup --install-ghc
+      if: env.CONTINUE
+
+    # - name: Install GHC (with ghcup)
+    #   run: |
+    #     mkdir -p ~/.ghcup/bin && curl -sL https://downloads.haskell.org/~ghcup/x86_64-apple-darwin-ghcup > ~/.ghcup/bin/ghcup && chmod +x ~/.ghcup/bin/ghcup
+    #     ~/.ghcup/bin/ghcup install --set ghc 9.2.4  # && ~/.ghcup/bin/ghcup install stack
+    #     echo "$HOME/.ghcup/bin/" >> $GITHUB_PATH
+    #   if: env.CONTINUE
+
+    # - name: Install GHC (from haskell.org)
+    #   run: |
+    #     curl -sL https://downloads.haskell.org/~ghc/9.2.4/ghc-9.2.4-x86_64-apple-darwin.tar.xz | tar xj && cd ghc-9.2.4-x86_64-apple-darwin && ./configure && make install
+    #     ghc --version
+    #     mkdir -p ~/.stack && printf "system-ghc: true\ninstall-ghc: false\n" >>~/.stack/config.yaml
+    #   if: env.CONTINUE
+
+    - name: Install haskell deps
+      env:
+        stack: ${{ matrix.plan.stack }}
+      run: |
+        $stack build --test --only-dependencies --dry-run
+        $stack build --test --only-dependencies
+      if: env.CONTINUE
+
+    - name: Build omnibus and test unit tests, doc tests
+      env:
+        stack: ${{ matrix.plan.stack }}
+      run: |
+        $stack install --test --force-dirty --ghc-options=-fforce-recomp --ghc-options=-Werror
+        # --ghc-options=-split-sections doesn't work on mac
+        #  --pedantic
+      if: env.CONTINUE
+
+    - name: Test functional tests
+      env:
+        stack: ${{ matrix.plan.stack }}
+      run: |
+        export PATH=~/.local/bin:$PATH
+        COLUMNS=80 $stack exec test
+      if: env.CONTINUE
+
+    # artifacts:
+
+    - name: Gather binaries
+      run: |
+        mkdir tmp
+        cd tmp
+        cp ~/.local/bin/omnibus .
+        strip omnibus
+        tar cvf omnibus-mac-x64.tar omnibus
+      if: env.CONTINUE
+
+    # upload-artifact loses execute permissions, so we tar the binaries to preserve them.
+    # github UI always zips artifacts when they are downloaded, so we don't bother compressing the tar.
+    # Unfortunately it means users must both unzip and untar.
+    - name: Upload binaries artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: omnibus-mac-x64
+        path: tmp/omnibus-mac-x64.tar
+      if: env.CONTINUE
