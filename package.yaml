@@ -44,6 +44,9 @@ library:
       - megaparsec
       - text-latin1
       - binary
+      - vector
+      - massiv
+      - exceptions
 
 executables:
   omnibus:
@@ -68,6 +71,7 @@ tests:
     dependencies:
     - fits-parse
     - containers
+    - massiv
     - tasty
     - tasty-hunit
     - text

@@ -16,8 +16,7 @@ module Data.Fits.MegaParser where
 
 -- qualified imports
 ---- bytestring
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Internal as BS ( c2w )
+import qualified Data.ByteString.Lazy as BL
 ---- containers
 import qualified Data.Map.Lazy as Map
 ---- megaparsec
@@ -28,16 +27,16 @@ import qualified Text.Megaparsec.Byte as M
 import qualified Text.Megaparsec.Byte.Lexer as MBL
 ---- text
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
----- local imports
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TE
+
+-- local imports
+import Data.Fits
 import qualified Data.Fits as Fits
 import qualified Data.Text.Encoding as C8
 import qualified Data.Binary as C8
 
-
 -- symbol imports
----- bytestring
-import Data.ByteString ( ByteString )
 ---- containers
 import Data.Map ( Map )
 ---- text
@@ -52,6 +51,7 @@ import Control.Applicative ( (<$>) )
 import Control.Exception ( Exception(displayException) )
 import Control.Monad ( void, foldM )
 import Data.Bifunctor ( first )
+import Data.ByteString.Lazy ( ByteString )
 import Data.Char ( ord )
 import Data.Maybe ( catMaybes, fromMaybe )
 import Data.Word ( Word8, Word16, Word32, Word64 )
@@ -72,8 +72,8 @@ import Data.Fits
   )
 
 
-type Parser = Parsec Void ByteString
-type ParseErr = ParseErrorBundle ByteString Void
+type Parser = Parsec Void BL.ByteString
+type ParseErr = ParseErrorBundle BL.ByteString Void
 
 data DataUnitValues
   = FITSUInt8 Word8
@@ -88,7 +88,7 @@ toWord :: Char -> Word8
 toWord = fromIntegral . ord
 
 wordsText :: [Word8] -> Text
-wordsText = TE.decodeUtf8 . BS.pack
+wordsText = TL.toStrict . TE.decodeUtf8 . BL.pack
 
 
 -- | Consumes ALL header blocks until end, then all remaining space
@@ -102,7 +102,7 @@ parseRecordLine :: Parser (Maybe (Keyword, Value))
 parseRecordLine = do
     M.try $ Just <$> parseKeywordRecord
     <|> Nothing <$ parseLineComment
-    <|> Nothing <$ M.string' (BS.replicate hduRecordLength (toWord ' '))
+    <|> Nothing <$ M.string' (BL.replicate (fromIntegral hduRecordLength) (toWord ' '))
 
 -- | Combinator to allow for parsing a record with inline comments
 withComments :: Parser a -> Parser a
@@ -118,7 +118,7 @@ parseKeywordRecord :: Parser (Keyword, Value)
 parseKeywordRecord = withComments parseKeywordValue
 
 -- | Parses the specified keyword
-parseKeywordRecord' :: ByteString -> Parser a -> Parser a
+parseKeywordRecord' :: BL.ByteString -> Parser a -> Parser a
 parseKeywordRecord' k pval = withComments $ do
     M.string' k
     parseEquals
@@ -145,7 +145,7 @@ parseLineComment :: Parser Comment
 parseLineComment = do
     let keyword = "COMMENT " :: ByteString
     M.string' keyword
-    c <- M.count (hduRecordLength - BS.length keyword) M.anySingle
+    c <- M.count (fromIntegral $ fromIntegral hduRecordLength - BL.length keyword) M.anySingle
     return $ Comment (wordsText c)
 
 -- | Anything but a space or equals
@@ -241,13 +241,14 @@ parseNaxes :: Parser Axes
 parseNaxes = do
     n <- parseKeywordRecord' "NAXIS" parseInt
     mapM parseN [1..n]
-  where
-    parseN :: Int -> Parser Int
-    parseN n = withComments $ do
-      M.string' "NAXIS"
-      M.string' $ BS.pack $ map toWord (show n)
-      parseEquals
-      parseInt
+
+    where
+      parseN :: Int -> Parser Int
+      parseN n = withComments $ do
+        M.string' "NAXIS"
+        M.string' $ BL.pack $ map toWord (show n)
+        parseEquals
+        parseInt
 
 -- | We don't parse simple here, because it isn't required on all HDUs
 parseDimensions :: Parser Dimensions
