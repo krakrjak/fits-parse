@@ -44,7 +44,8 @@ module Data.Fits
     , Comment(..)
     , SimpleFormat(..)
     , BitPixFormat(..)
-    , Axes
+    , Axes(..)
+    , Axis
 
       -- * Utility
     , isBitPixInt
@@ -144,8 +145,11 @@ data Value
     deriving (Show, Eq)
 
 
-{-| 'Axes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes -}
-type Axes = [Int]
+{-| 'Axes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes. These are sorted with the inner-most dimension first -}
+type Axes = [Axis]
+
+-- | How wide a single dimension is
+type Axis = Int
 
 {-| The 'BitPixFormat' is the nitty gritty of how the 'Axis' data is layed
     out in the file. The standard recognizes six formats: unsigned 8 bit
@@ -365,9 +369,9 @@ data HeaderDataUnit = HeaderDataUnit
     { _header :: Header         -- ^ The heeader contains metadata about the payload
     , _dimensions :: Dimensions -- ^ This dimensions of the main data array
     , _extension :: Extension   -- ^ Extensions may vary the data format
-    , _mainData :: ByteString   -- ^ The main data array
+    , _mainData :: BL.ByteString   -- ^ The main data array
     }
-    
+ 
 $(makeLenses ''HeaderDataUnit)
 
 instance Show HeaderDataUnit where
@@ -375,5 +379,5 @@ instance Show HeaderDataUnit where
       [ "HeaderDataUnit:"
       , "  headers = " <> show (Map.size (hdu ^. header . keywords))
       , "  extension = " <> show (hdu ^. extension)
-      , "  mainData = " <> show (BS.length (hdu ^. mainData)) <> " Bytes"
+      , "  mainData = " <> show (BL.length (hdu ^. mainData)) <> " Bytes"
       ]

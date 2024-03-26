@@ -1,10 +1,11 @@
-{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Data.Fits.Read where
 
 import Control.Exception ( displayException )
 import Data.Bifunctor ( first )
-import Data.ByteString ( ByteString )
+import Data.ByteString.Lazy ( ByteString )
+import Data.Fits as Fits
+import Data.Fits.MegaParser
 import Data.Maybe ( listToMaybe )
 import Data.Text ( Text, unpack )
 import qualified Data.ByteString as BS
