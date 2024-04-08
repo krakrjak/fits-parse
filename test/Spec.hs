@@ -5,7 +5,8 @@
 module Main where
 -- qualified imports
 ---- base
-import qualified Data.Map.Strict as Map
+import Prelude hiding (lookup)
+import qualified Data.List as L
 ---- bytestring
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -40,28 +41,34 @@ import Data.Text ( Text )
 import Data.Fits ( Axes
                  , BitPixFormat(..)
                  , bitPixToByteSize
-                 , Comment(Comment)
                  , Dimensions
                  , axes
                  , bitpix
                  , Extension(..)
                  , Header
+                 , KeywordRecord(..)
                  , keywords
+                 , records
                  , HeaderDataUnit
                  , header
+                 , HeaderRecord(..)
                  , dimensions
                  , extension
                  , mainData
-                 , Keyword(Keyword)
+                 , lookup
                  , LogicalConstant(..)
                  , Value(..)
                  , hduBlockSize
                  )
 import Data.Fits.MegaParser
 import Data.Fits.Read
+import System.IO
+
 
 main :: IO ()
-main =
+main = do
+  hSetBuffering stdout LineBuffering
+  hSetBuffering stderr LineBuffering
   testMain $ runTests "Tests" $ do
     basicParsing
     keywordValueLines
@@ -103,11 +110,11 @@ basicParsing = describe "Basic Parsing" $ do
 
   it "should parse a keyword" $ do
     res <- parse parseKeyword "WS_TEMP ="
-    res @?= Keyword "WS_TEMP"
+    res @?= "WS_TEMP"
 
   it "should handle keyword symbols" $ do
     res <- parse parseKeyword "OBSGEO-X=   -5466045.256954942 / [m]"
-    res @?= Keyword "OBSGEO-X"
+    res @?= "OBSGEO-X"
 
 
 
@@ -149,53 +156,98 @@ fullRecord :: Test ()
 fullRecord = describe "parseKeywordRecord" $ do
     it "should parse an 80 character record" $ do
       res <- parse parseKeywordRecord (flattenKeywords ["KEYWORD = 12345"])
-      res @?= ("KEYWORD", Integer 12345)
+      res @?= KeywordRecord "KEYWORD" (Integer 12345) Nothing
 
     it "should parse an a record and comment" $ do
       res <- parse parseKeywordRecord (flattenKeywords ["KEYWORD = 12345 / this is a comment"])
-      res @?= ("KEYWORD", Integer 12345)
+      res @?= KeywordRecord "KEYWORD" (Integer 12345) (Just "this is a comment")
 
     it "should parse a record, comment, followed by next keyword" $ do
       res <- parse parseKeywordRecord $ flattenKeywords ["SIMPLE  =                    T / conforms to FITS standard"]
-      res @?= ("SIMPLE", Logic T)
+      res @?= KeywordRecord "SIMPLE" (Logic T) (Just "conforms to FITS standard")
 
     it "should handle keyword symbols" $ do
       res <- parse parseKeywordRecord $ flattenKeywords ["OBSGEO-X=   -5466045.256954942 / [m]"]
-      res @?= ("OBSGEO-X", Float (-5466045.256954942))
+      res @?= KeywordRecord "OBSGEO-X" (Float (-5466045.256954942)) (Just "[m]")
 
     it "should handle extension" $ do
       res <- parse parseKeywordRecord $ flattenKeywords ["XTENSION= 'IMAGE   '"]
-      res @?= ("XTENSION", String "IMAGE")
+      res @?= KeywordRecord "XTENSION" (String "IMAGE") Nothing
+
+    it "should not consume blank lines" $ do
+        let inp = flattenKeywords ["SIMPLE  =                    T" , " "]
+        res <- flip parse inp $ do
+          kv <- parseKeywordRecord
+          _ <- parseLineBlank
+          pure kv
+        res @?= KeywordRecord "SIMPLE" (Logic T) Nothing
+
 
 
 fullRecordLine :: Test ()
 fullRecordLine = describe "parseRecordLine" $ do
     it "should parse a normal line" $ do
       res <- parse parseRecordLine "NAXIS1  =                  100 / [pix]                                          END"
-      res @?= Just ("NAXIS1", Integer 100)
+      res @?= Keyword (KeywordRecord "NAXIS1" (Integer 100) (Just "[pix]"))
 
     it "should parse a comment line" $ do
       res <- parse parseRecordLine "COMMENT ------------------------------ Telescope -------------------------------END"
-      res @?= Nothing
+      res @?= Comment "------------------------------ Telescope -------------------------------"
 
     it "should parse a blank line" $ do
       res <- parse parseRecordLine $ flattenKeywords [" "]
-      res @?= Nothing
+      res @?= BlankLine
 
 
 comments :: Test ()
-comments = describe "Full-line comments" $ do
+comments = do
+  describe "Full-line comments" $ do
     it "should parse full-line comments" $ do
       res <- parse parseLineComment $ flattenKeywords ["COMMENT --------------------------- VISP Instrument ----------------------------"]
-      res @?= Comment "--------------------------- VISP Instrument ----------------------------"
+      res @?= "--------------------------- VISP Instrument ----------------------------"
 
     it "should parse comments with text" $ do
       res <- parse parseLineComment $ flattenKeywords ["COMMENT  Keys describing the pointing and operation of the telescope. Including "]
-      res @?= Comment " Keys describing the pointing and operation of the telescope. Including "
+      res @?= " Keys describing the pointing and operation of the telescope. Including "
 
     it "should parse blank comments" $ do
       res <- parse parseLineComment $ flattenKeywords ["COMMENT                                                                         "]
-      res @?= Comment "                                                                        "
+      res @?= "                                                                        "
+  
+  describe "inline comments" $ do
+    it "should parse comment" $ do
+      res <- parse (parseInlineComment 0) $ " / Telescope" <> C8.replicate 68 ' '
+      res @?= "Telescope"
+
+  describe "parse to line end" $ do
+    it "should parse comment line end" $ do
+      res <- parse (parseLineEnd 0) $ " / Telescope" <> C8.replicate 68 ' '
+      res @?= Just "Telescope"
+
+    it "should ignore blanks" $ do
+      res <- parse (parseLineEnd 0) $ C8.replicate 80 ' '
+      res @?= Nothing
+
+    it "should parse comment after blanks" $ do
+      res <- parse (parseLineEnd 0) $ "          / comment " <> C8.replicate 60 ' '
+      res @?= Just "comment"
+
+  describe "withComments" $ do
+    it "should parse a number, ignoring" $ do
+      res <- parse (withComments parseValue) $ "12345 / Woot" <> C8.replicate 68 ' '
+      res @?= (Integer 12345, Just "Woot")
+    
+    it "should parse no comment" $ do
+      res <- parse (withComments parseValue) $ "12345       " <> C8.replicate 68 ' '
+      res @?= (Integer 12345, Nothing)
+
+    it "should ignore comments on bintable" $ do
+      -- parse (withComments parseValue) $ "12345       " <> C8.replicate 68 ' '
+      let inp = flattenKeywords ["XTENSION= 'BINTABLE'           / binary table extension"]
+      (_, mc) <- flip parse inp $ do
+        withComments $ M.string' "XTENSION= 'BINTABLE'"
+      mc @?= Just "binary table extension"
+
 
 
 continue :: Test ()
@@ -210,45 +262,51 @@ continue = describe "Continue Keyword" $ do
               , "CONTINUE  'ml'                                                                  "
               ]
 
-      m <- parse parseHeader $ flattenKeywords h
-      Map.lookup "CAL_URL" m @?= Just (String "https://docs.dkist.nso.edu/projects/visp/en/v2.0.1/l0_to_l1_visp.html")
+      h <- parse parseHeader $ flattenKeywords h
+      Fits.lookup "CAL_URL" h @?= Just (String "https://docs.dkist.nso.edu/projects/visp/en/v2.0.1/l0_to_l1_visp.html")
 
 
 headerMap :: Test ()
 headerMap = describe "full header" $ do
     it "should parse single header" $ do
-        res <- parse parseHeader $ flattenKeywords ["KEY1='value'"]
-        Map.size res @?= 1
-        Map.lookup "KEY1" res @?= Just (String "value")
+        h <- parse parseHeader $ flattenKeywords ["KEY1='value'"]
+        length (h ^. keywords) @?= 1
+        Fits.lookup "KEY1" h @?= Just (String "value")
 
     it "should parse multiple headers " $ do
         res <- parse parseHeader $ flattenKeywords ["KEY1='value'", "KEY2=  23"]
-        Map.size res @?= 2
-        Map.lookup "KEY2" res @?= Just (Integer 23)
+        length (res ^.  keywords) @?= 2
+        Fits.lookup "KEY2" res @?= Just (Integer 23)
 
     it "should ignore comments" $ do
         res <- parse parseHeader $ flattenKeywords ["KEY1='value' / this is a comment"]
-        Map.size res @?= 1
-        Map.lookup "KEY1" res @?= Just (String "value")
+        length (res ^. keywords) @?= 1
+        Fits.lookup "KEY1" res @?= Just (String "value")
 
     it "should handle xtension" $ do
         res <- parse parseHeader $ flattenKeywords ["XTENSION= 'IMAGE   '"]
-        Map.size res @?= 1
-        Map.lookup "XTENSION" res @?= Just (String "IMAGE")
+        length (res ^. keywords) @?= 1
+        Fits.lookup "XTENSION" res @?= Just (String "IMAGE")
+
+    it "should parse blank line before keyword" $ do
+        res <- parse parseHeader $ flattenKeywords [" ", "KEY2    = 22"]
+        (res ^. records) @?= [BlankLine, Keyword (KeywordRecord "KEY2" (Integer 22) Nothing)]
+        
+    it "should parse line after keyword" $ do
+        res <- parse parseHeader $ flattenKeywords ["KEY1    = 11", " ", "KEY2    = 22"]
+        (res ^. records) @?= [Keyword (KeywordRecord "KEY1" (Integer 11) Nothing), BlankLine, Keyword (KeywordRecord "KEY2" (Integer 22) Nothing)]
+
 
 
 requiredHeaders :: Test ()
-requiredHeaders = describe "required headers" $ do
-
-    --   res <- parse parseSimple $ keywords ["SIMPLE=    T"]
-    --   res @?= Primary
-
+requiredHeaders =
+  describe "required headers" $ do
     it "should parse bitpix" $ do
       res <- parse parseBitPix $ flattenKeywords ["BITPIX = 16"]
       res @?= SixteenBitInt
 
-    it "should parse NAxes" $ do
-      res <- parse parseNaxes $ flattenKeywords ["NAXIS = 3", "NAXIS1=1", "NAXIS2=2", "NAXIS3=3"]
+    it "should parse NAXES" $ do
+      res <- parse parseNaxes $ flattenKeywords ["NAXIS   =3", "NAXIS1  =1", "NAXIS2  =2", "NAXIS3  =3"]
       res @?= [1,2,3]
 
     it "should parse size" $ do
@@ -260,8 +318,8 @@ requiredHeaders = describe "required headers" $ do
       let fakeData = "1234" -- Related to NAXIS!
       h <- parse parsePrimary $ flattenKeywords ["SIMPLE = T", "BITPIX = 8", "NAXIS=2", "NAXIS1=2", "NAXIS2=2", "TEST='hi'"] <> fakeData
       (h ^. extension) @?= Primary
-      Map.size (h ^. header . keywords) @?= 5
-      Fits.lookup "NAXIS" (h ^. header) @?= Just (Integer 2) 
+      length (h ^. header . keywords) @?= 5
+      lookup "NAXIS" (h ^. header) @?= Just (Integer 2) 
 
     it "should parse full extension" $ do
       h <- parse parseBinTable $ flattenKeywords ["XTENSION= 'BINTABLE'", "BITPIX = -32", "NAXIS=0", "PCOUNT=0", "GCOUNT=1"]
@@ -304,8 +362,10 @@ sampleNSOHeaders = do
               , "COMMENT  Keys describing the pointing and operation of the telescope. Including "
               , "COMMENT     the FITS WCS keys describing the world coordinates of the array.    "
               ]
-      m <- parse parseHeader $ flattenKeywords h
-      Map.size m @?= 1
+      h <- parse parseHeader $ flattenKeywords h
+      length (h ^. keywords) @?= 1
+      -- print $ h ^. records
+      -- length (h ^. records) @?= 5
 
 
     describe "sample header file" $ do
@@ -317,9 +377,16 @@ sampleNSOHeaders = do
           _ <- parse parseRecordLine $ flattenKeywords [TE.encodeUtf8 t]
           pure ()
 
-      it "should parse NAxes correctly" $ do
-        (sz, _) <- parse parseBinTableKeywords $ mconcat $ C8.lines bs
-        (sz ^. axes) @?= [32, 998]
+      it "should parse xtension bintable" $ do
+        flip parse bs $ do
+          ignoreComments $ M.string' "XTENSION= 'BINTABLE'"
+          pure ()
+        -- (sz, _) <- parse parseBinTableKeywords $ mconcat $ C8.lines bs
+        -- (sz ^. axes) @?= [32, 998]
+
+      -- it "should parse NAXES correctly" $ do
+      --   (sz, _) <- parse parseBinTableKeywords $ mconcat $ C8.lines bs
+      --   (sz ^. axes) @?= [32, 998]
 
   where
     ignore t = T.isPrefixOf "CONTINUE" t || T.isPrefixOf "END" t

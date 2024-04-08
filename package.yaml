@@ -39,7 +39,6 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
-      - containers
       - text
       - megaparsec
       - text-latin1
@@ -67,7 +66,6 @@ tests:
     main: Spec.hs
     dependencies:
     - fits-parse
-    - containers
     - tasty
     - tasty-hunit
     - text
