@@ -33,6 +33,7 @@ module Data.Fits
     , Header(..)
     , keywords -- ^ get only keywords
     , records -- ^ access all header records
+    , getKeywords
     , HeaderRecord(..)
     , KeywordRecord(..)
     , Extension(..)
@@ -310,17 +311,20 @@ pixDimsByRow = reverse . pixDimsByCol
     that starts 2,880 bytes after the start of the 'HeaderData'.
 -}
 newtype Header = Header { _records :: [HeaderRecord] }
-    deriving (Eq)
+    deriving (Eq, Semigroup, Monoid)
 $(makeLenses ''Header)
+
 
 keywords :: SimpleGetter Header [(Text, Value)]
 keywords = to getKeywords
-  where
-    getKeywords :: Header -> [(Text, Value)]
-    getKeywords h = mapMaybe toKeyword $ h ^. records
 
+
+getKeywords :: Header -> [(Text, Value)]
+getKeywords h = mapMaybe toKeyword $ h ^. records
+  where
     toKeyword (Keyword (KeywordRecord k v _)) = Just (k,v)
     toKeyword _ = Nothing
+
 
 instance Show Header where
   show h =
