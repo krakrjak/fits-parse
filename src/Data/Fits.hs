@@ -33,11 +33,12 @@ module Data.Fits
     , Header(..)
     , keywords -- ^ get only keywords
     , records -- ^ access all header records
-    , getKeywords
     , HeaderRecord(..)
     , KeywordRecord(..)
     , Extension(..)
+    , getKeywords
     , Data.Fits.lookup
+    , isKeyword
     , Value(..)
     , toInt, toFloat, toText
     , LogicalConstant(..)
@@ -125,7 +126,7 @@ data SimpleFormat = Conformant | NonConformant
     deriving (Eq, Show)
                     -- ^ Value of SIMPLE=T in the header. /supported/
                     -- NonConformat
-                    -- ^ Value of SIMPLE=F in the header. /unsupported/
+                    -- ^ Value of SIMPLE=F in the header. /unsupported/data/fi
 
 {-| Direct encoding of a `Bool` for parsing `Value` -}
 data LogicalConstant = T | F
@@ -315,14 +316,16 @@ newtype Header = Header { _records :: [HeaderRecord] }
 $(makeLenses ''Header)
 
 
-keywords :: SimpleGetter Header [(Text, Value)]
+-- | Return all 'KeywordRecord's from the header, filtering out full-line comments and blanks
+keywords :: SimpleGetter Header [KeywordRecord]
 keywords = to getKeywords
 
 
-getKeywords :: Header -> [(Text, Value)]
+-- | Return all 'KeywordRecord's from the header, filtering out full-line comments and blanks
+getKeywords :: Header -> [KeywordRecord]
 getKeywords h = mapMaybe toKeyword $ h ^. records
   where
-    toKeyword (Keyword (KeywordRecord k v _)) = Just (k,v)
+    toKeyword (Keyword k) = Just k
     toKeyword _ = Nothing
 
 
@@ -348,7 +351,12 @@ instance Show Header where
       val (String t) = T.unpack t
 
 lookup :: Text -> Header -> Maybe Value
-lookup k h = L.lookup k $ h ^. keywords
+lookup k h = do
+  kr <- L.find (isKeyword k) (h ^. keywords)
+  pure $ kr ^. value
+
+isKeyword :: Text -> KeywordRecord -> Bool
+isKeyword k kr = kr ^. keyword == k
 
 
 data Extension
