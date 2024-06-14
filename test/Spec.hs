@@ -342,7 +342,7 @@ sampleSpiral =
       hdu <- eitherFail $ readPrimaryHDU bs
       -- hdu.header.size.bitpix @?= ThirtyTwoBitFloat
       -- hdu.header.size.naxes @?= NAxes [621, 621]
-      --
+ 
       Fits.lookup "NAXIS" (hdu ^. header) @?= Just (Integer 2) 
 
       let payloadSize = BS.length (hdu ^. mainData)
@@ -364,8 +364,6 @@ sampleNSOHeaders = do
               ]
       h <- parse parseHeader $ flattenKeywords h
       length (h ^. keywords) @?= 1
-      -- print $ h ^. records
-      -- length (h ^. records) @?= 5
 
 
     describe "sample header file" $ do
@@ -378,15 +376,12 @@ sampleNSOHeaders = do
           pure ()
 
       it "should parse xtension bintable" $ do
-        flip parse bs $ do
-          ignoreComments $ M.string' "XTENSION= 'BINTABLE'"
-          pure ()
-        -- (sz, _) <- parse parseBinTableKeywords $ mconcat $ C8.lines bs
-        -- (sz ^. axes) @?= [32, 998]
+          (sz, _) <- parse parseBinTableKeywords $ mconcat $ C8.lines bs
+          (sz ^. axes) @?= [32, 998]
 
-      -- it "should parse NAXES correctly" $ do
-      --   (sz, _) <- parse parseBinTableKeywords $ mconcat $ C8.lines bs
-      --   (sz ^. axes) @?= [32, 998]
+      it "should parse NAXES correctly" $ do
+        (sz, _) <- parse parseBinTableKeywords $ mconcat $ C8.lines bs
+        (sz ^. axes) @?= [32, 998]
 
   where
     ignore t = T.isPrefixOf "CONTINUE" t || T.isPrefixOf "END" t

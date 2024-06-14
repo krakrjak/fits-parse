@@ -132,11 +132,6 @@ data SimpleFormat = Conformant | NonConformant
 data LogicalConstant = T | F
     deriving (Show, Eq)
 
--- {-| The `Text` wrapper for HDU the keyword data for lines of the form:
---     KEYWORD=VALUE
--- -}
--- newtype Keyword = Keyword Text
---     deriving (Show, Eq, Ord, IsString)
 
 {-| `Value` datatype for discriminating valid FITS KEYWORD=VALUE types in an HDU. -}
 data Value
@@ -147,6 +142,9 @@ data Value
     deriving (Show, Eq)
 
 
+{-| A single 80 character header keyword line of the form: KEYWORD = VALUE / comment
+    KEYWORD=VALUE
+-}
 data KeywordRecord = KeywordRecord
   { _keyword :: Text
   , _value :: Value
@@ -155,11 +153,12 @@ data KeywordRecord = KeywordRecord
   deriving (Show, Eq)
 $(makeLenses ''KeywordRecord)
 
--- {-| Headers contain lines that are any of the following
---     KEYWORD =VALUE / inline comment
---     COMMENT this is a comment
---     (blank)
--- -}
+{-| Headers contain lines that are any of the following
+
+ > KEYWORD = VALUE / inline comment
+ > COMMENT full line comment
+ > (blank)
+-}
 data HeaderRecord
     = Keyword KeywordRecord
     | Comment Text

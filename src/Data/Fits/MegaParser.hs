@@ -287,19 +287,29 @@ parseDimensions = do
 
 parsePrimary :: Parser HeaderDataUnit
 parsePrimary = do
-    parseKeywordRecord' "SIMPLE" parseLogic
-    dm <- M.lookAhead parseDimensions
+    dm <- parsePrimaryKeywords
     hd <- parseHeader
     dt <- parseMainData dm
     return $ HeaderDataUnit hd dm Primary dt
 
+
+parsePrimaryKeywords :: Parser Dimensions
+parsePrimaryKeywords = do
+    parseKeywordRecord' "SIMPLE" parseLogic
+    M.lookAhead parseDimensions
+
+
 parseImage :: Parser HeaderDataUnit
 parseImage = do
-    ignoreComments $ M.string' "XTENSION= 'IMAGE   '"
-    dm <- M.lookAhead parseDimensions
+    dm <- parseImageKeywords
     hd <- parseHeader
     dt <- parseMainData dm
     return $ HeaderDataUnit hd dm Image dt
+
+parseImageKeywords :: Parser Dimensions
+parseImageKeywords = do
+    ignoreComments $ M.string' "XTENSION= 'IMAGE   '"
+    M.lookAhead parseDimensions
 
 parseBinTable :: Parser HeaderDataUnit
 parseBinTable = do
