@@ -164,13 +164,6 @@ data HeaderRecord
     | Comment Text
     | BlankLine
     deriving (Show, Eq)
-
-
-
-
- 
-
-
 {-| 'Axes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes -}
 type Axes = [Int]
 
