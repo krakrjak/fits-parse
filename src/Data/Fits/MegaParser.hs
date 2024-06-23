@@ -18,10 +18,9 @@ module Data.Fits.MegaParser where
 ---- bytestring
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BS ( c2w )
----- containers
-import qualified Data.Map.Lazy as Map
 ---- megaparsec
 import qualified Text.Megaparsec as M
+import qualified Text.Megaparsec.Char as MC
 import qualified Text.Megaparsec.Stream as M
 import qualified Text.Megaparsec.Pos as MP
 import qualified Text.Megaparsec.Byte as M
@@ -31,15 +30,13 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 ---- local imports
 import qualified Data.Fits as Fits
-import qualified Data.Text.Encoding as C8
+import qualified Data.ByteString.Char8 as C8
 import qualified Data.Binary as C8
 
 
 -- symbol imports
 ---- bytestring
 import Data.ByteString ( ByteString )
----- containers
-import Data.Map ( Map )
 ---- text
 import Data.Text ( Text )
 ---- megaparsec
@@ -50,7 +47,7 @@ import Lens.Micro ((^.))
 ---- base
 import Control.Applicative ( (<$>) )
 import Control.Exception ( Exception(displayException) )
-import Control.Monad ( void, foldM )
+import Control.Monad ( void, foldM, replicateM_ )
 import Data.Bifunctor ( first )
 import Data.Char ( ord )
 import Data.Maybe ( catMaybes, fromMaybe )
@@ -59,11 +56,11 @@ import Data.Void ( Void )
 ---- local imports
 import Data.Fits
   ( Axes
-  , Comment(Comment)
   , Dimensions(Dimensions)
   , Header(Header)
+  , KeywordRecord(..)
+  , HeaderRecord(..)
   , HeaderDataUnit(HeaderDataUnit)
-  , Keyword(Keyword)
   , BitPixFormat(..)
   , Extension(..)
   , LogicalConstant(..)
@@ -92,65 +89,102 @@ wordsText = TE.decodeUtf8 . BS.pack
 
 
 -- | Consumes ALL header blocks until end, then all remaining space
-parseHeader :: Parser (Map Keyword Value)
+parseHeader :: Parser Header
 parseHeader = do
     pairs <- M.manyTill parseRecordLine (M.string' "end")
     M.space -- consume space padding all the way to the end of the next 2880 bytes header block
-    return $ Map.fromList $ catMaybes pairs
+    return $ Header pairs
 
-parseRecordLine :: Parser (Maybe (Keyword, Value))
+parseRecordLine :: Parser HeaderRecord
 parseRecordLine = do
-    M.try $ Just <$> parseKeywordRecord
-    <|> Nothing <$ parseLineComment
-    <|> Nothing <$ M.string' (BS.replicate hduRecordLength (toWord ' '))
+    M.try (Keyword <$> parseKeywordRecord)
+      <|> M.try (Comment <$> parseLineComment)
+      <|> BlankLine <$ parseLineBlank
 
--- | Combinator to allow for parsing a record with inline comments
-withComments :: Parser a -> Parser a
-withComments parse = do
-    start <- parsePos
-    a <- parse
-    M.space
-    M.optional $ parseInlineComment start
-    M.space
-    return a
 
-parseKeywordRecord :: Parser (Keyword, Value)
-parseKeywordRecord = withComments parseKeywordValue
+parseKeywordRecord :: Parser KeywordRecord
+parseKeywordRecord = do
+    ((k, v), mc) <- withComments parseKeywordValue
+    pure $ KeywordRecord k v mc
 
 -- | Parses the specified keyword
 parseKeywordRecord' :: ByteString -> Parser a -> Parser a
-parseKeywordRecord' k pval = withComments $ do
+parseKeywordRecord' k pval = ignoreComments $ do
     M.string' k
     parseEquals
     pval
 
-parseKeywordValue :: Parser (Keyword, Value)
+
+
+
+-- | Combinator to allow for parsing a record with inline comments
+withComments :: Parser a -> Parser (a, Maybe Text)
+withComments parse = do
+    -- assumes we are at the beginning of the line
+    lineStart <- parsePos
+    a <- parse
+    mc <- parseLineEnd lineStart
+    return (a, mc)
+
+ignoreComments :: Parser a -> Parser a
+ignoreComments parse = do
+    (a, _) <- withComments parse
+    pure a
+
+
+parseKeywordValue :: Parser (Text, Value)
 parseKeywordValue = do
     key <- parseKeyword
     parseEquals
     val <- parseValue
     return (key, val)
 
-parseInlineComment :: Int -> Parser Comment
-parseInlineComment start = do
-    M.char $ toWord '/'
-    M.space
-    com <- parsePos
-    let end = start + hduRecordLength
-    let rem = end - com
-    c <- M.count rem M.anySingle
-    return $ Comment (wordsText c)
 
-parseLineComment :: Parser Comment
+parseLineEnd :: Int -> Parser (Maybe Text)
+parseLineEnd lineStart = do
+  M.try (Nothing <$ spacesToLineEnd lineStart) <|> (Just <$> parseInlineComment lineStart)
+
+
+spacesToLineEnd :: Int -> Parser ()
+spacesToLineEnd lineStart = do
+  curr <- parsePos
+  let used = curr - lineStart
+  parseSpacesN (hduRecordLength - used)
+  pure ()
+
+parseSpacesN :: Int -> Parser ()
+parseSpacesN n = replicateM_ n (M.char $ toWord ' ')
+
+parseInlineComment :: Int -> Parser Text
+parseInlineComment lineStart = do
+    -- any number of spaces... the previous combinator has eaten up blank lines already
+    M.space
+    M.char $ toWord '/'
+    M.optional charSpace
+    curr <- parsePos
+    let used = curr - lineStart
+    c <- M.count (hduRecordLength - used) M.anySingle
+    return $ T.strip $ wordsText c
+  where
+    charSpace = M.char $ toWord ' '
+
+
+parseLineComment :: Parser Text
 parseLineComment = do
     let keyword = "COMMENT " :: ByteString
     M.string' keyword
     c <- M.count (hduRecordLength - BS.length keyword) M.anySingle
-    return $ Comment (wordsText c)
+    return $ wordsText c
+
+parseLineBlank :: Parser ()
+parseLineBlank = do
+  M.string' (BS.replicate hduRecordLength (toWord ' '))
+  pure ()
+
 
 -- | Anything but a space or equals
-parseKeyword :: Parser Keyword
-parseKeyword = Keyword . wordsText <$> M.some (M.noneOf $ fmap toWord [' ', '='])
+parseKeyword :: Parser Text
+parseKeyword = wordsText <$> M.some (M.noneOf $ fmap toWord [' ', '='])
 
 parseValue :: Parser Value
 parseValue =
@@ -195,7 +229,7 @@ parseStringValue = do
     return (T.stripEnd $ wordsText ls)
     where quote = toWord '\''
 
-requireKeyword :: Keyword -> Header -> Parser Value
+requireKeyword :: Text -> Header -> Parser Value
 requireKeyword k kvs = do
     case Fits.lookup k kvs of
       Nothing -> fail $ "Missing: " <> show k
@@ -243,11 +277,7 @@ parseNaxes = do
     mapM parseN [1..n]
   where
     parseN :: Int -> Parser Int
-    parseN n = withComments $ do
-      M.string' "NAXIS"
-      M.string' $ BS.pack $ map toWord (show n)
-      parseEquals
-      parseInt
+    parseN n = parseKeywordRecord' (C8.pack $ "NAXIS" <> show n) parseInt
 
 -- | We don't parse simple here, because it isn't required on all HDUs
 parseDimensions :: Parser Dimensions
@@ -257,19 +287,29 @@ parseDimensions = do
 
 parsePrimary :: Parser HeaderDataUnit
 parsePrimary = do
-    parseKeywordRecord' "SIMPLE" parseLogic
-    dm <- M.lookAhead parseDimensions
+    dm <- parsePrimaryKeywords
     hd <- parseHeader
     dt <- parseMainData dm
-    return $ HeaderDataUnit (Header hd) dm Primary dt
+    return $ HeaderDataUnit hd dm Primary dt
+
+
+parsePrimaryKeywords :: Parser Dimensions
+parsePrimaryKeywords = do
+    parseKeywordRecord' "SIMPLE" parseLogic
+    M.lookAhead parseDimensions
+
 
 parseImage :: Parser HeaderDataUnit
 parseImage = do
-    withComments $ M.string' "XTENSION= 'IMAGE   '"
-    dm <- M.lookAhead parseDimensions
+    dm <- parseImageKeywords
     hd <- parseHeader
     dt <- parseMainData dm
-    return $ HeaderDataUnit (Header hd) dm Image dt
+    return $ HeaderDataUnit hd dm Image dt
+
+parseImageKeywords :: Parser Dimensions
+parseImageKeywords = do
+    ignoreComments $ M.string' "XTENSION= 'IMAGE   '"
+    M.lookAhead parseDimensions
 
 parseBinTable :: Parser HeaderDataUnit
 parseBinTable = do
@@ -278,13 +318,13 @@ parseBinTable = do
     dt <- parseMainData dm
     hp <- parseBinTableHeap
     let tab = BinTable pc hp
-    return $ HeaderDataUnit (Header hd) dm tab dt
+    return $ HeaderDataUnit hd dm tab dt
     where
       parseBinTableHeap = return ""
 
 parseBinTableKeywords :: Parser (Dimensions, Int)
 parseBinTableKeywords = do 
-  withComments $ M.string' "XTENSION= 'BINTABLE'"
+  ignoreComments $ M.string' "XTENSION= 'BINTABLE'"
   sz <- parseDimensions
   pc <- parseKeywordRecord' "PCOUNT" parseInt
   return (sz, pc)

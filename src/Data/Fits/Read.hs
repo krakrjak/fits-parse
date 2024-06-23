@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Data.Fits.Read where
 
@@ -8,9 +7,10 @@ import Data.ByteString ( ByteString )
 import Data.Maybe ( listToMaybe )
 import Data.Text ( Text, unpack )
 import qualified Data.ByteString as BS
-import qualified Data.Map.Lazy as Map
+import qualified Data.List as L
 import qualified Text.Megaparsec as M
 import Data.List ( find )
+import Lens.Micro ((^.))
 
 ---- local imports
 import Data.Fits as Fits
@@ -31,12 +31,8 @@ readPrimaryHDU bs = do
 -- | Look up a keyword and parse it into the expected format
 getKeyword :: Text -> (Value -> Maybe a) -> HeaderDataUnit -> Either String a
 getKeyword k fromVal hdu = do
-    let key = Keyword k
-    v <- maybeError (MissingKey key) $ Map.lookup key (_keywords . _header $ hdu)
-    maybeError (InvalidKey key v) $ fromVal v
-  where
-    findKey :: Keyword -> Header -> Maybe Value
-    findKey key h = Map.lookup key (_keywords h)
+    v <- maybeError (MissingKey k) $ Fits.lookup k (hdu ^. header)
+    maybeError (InvalidKey k v) $ fromVal v
 
 -- | Get the HDU at an index and fail with a readable error
 getHDU :: String -> Int -> [HeaderDataUnit] -> Either String HeaderDataUnit
@@ -53,16 +49,16 @@ eitherFail (Right a) = return a
 
 data FitsError
     = ParseError ParseErr
-    | MissingKey Keyword
-    | InvalidKey Keyword Value
+    | MissingKey Text
+    | InvalidKey Text Value
     | MissingHDU String Int 
     | InvalidData String
     deriving (Eq)
 
 instance Show FitsError where
     show (ParseError e) = displayException e
-    show (MissingKey (Keyword k)) = "Keyword Missing: " <> unpack k
-    show (InvalidKey (Keyword k) val) = "Keyword: " <> unpack k <> " was invalid. Got " <> show val
+    show (MissingKey k) = "Keyword Missing: " <> unpack k
+    show (InvalidKey k val) = "Keyword: " <> unpack k <> " was invalid. Got " <> show val
     show (MissingHDU name n) = "HDU Missing: " <> name <> " at index " <> show n
     show (InvalidData err) = "Data Invalid: " <> err
 

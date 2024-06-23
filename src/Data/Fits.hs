@@ -31,17 +31,20 @@ module Data.Fits
 
       -- ** Header Data Types
     , Header(..)
-    , keywords -- ^ lens for Keyword Map in Header
+    , keywords -- ^ get only keywords
+    , records -- ^ access all header records
+    , HeaderRecord(..)
+    , KeywordRecord(..)
     , Extension(..)
+    , getKeywords
     , Data.Fits.lookup
-    , Keyword(..)
+    , isKeyword
     , Value(..)
     , toInt, toFloat, toText
     , LogicalConstant(..)
     , Dimensions(..)
     , axes
     , bitpix
-    , Comment(..)
     , SimpleFormat(..)
     , BitPixFormat(..)
     , Axes
@@ -66,23 +69,23 @@ import qualified Data.Text as T
 ---- bytestring
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Map as Map
 
 import Data.String (IsString)
+import qualified Data.List as L
+import Data.Maybe (mapMaybe)
 
 ---- ghc
 import GHC.TypeNats (KnownNat, Nat)
 
 ---- text
 import Data.Text ( Text )
-import Data.Map ( Map )
 import Data.List ( intercalate )
 
 ---- bytestring
 import Data.ByteString ( ByteString )
 
 ---- microlens
-import Lens.Micro ((^.))
+import Lens.Micro ((^.), SimpleGetter, to)
 ---- microlens-th
 import Lens.Micro.TH ( makeLenses )
 
@@ -123,17 +126,12 @@ data SimpleFormat = Conformant | NonConformant
     deriving (Eq, Show)
                     -- ^ Value of SIMPLE=T in the header. /supported/
                     -- NonConformat
-                    -- ^ Value of SIMPLE=F in the header. /unsupported/
+                    -- ^ Value of SIMPLE=F in the header. /unsupported/data/fi
 
 {-| Direct encoding of a `Bool` for parsing `Value` -}
 data LogicalConstant = T | F
     deriving (Show, Eq)
 
-{-| The `Text` wrapper for HDU the keyword data for lines of the form:
-    KEYWORD=VALUE
--}
-newtype Keyword = Keyword Text
-    deriving (Show, Eq, Ord, IsString)
 
 {-| `Value` datatype for discriminating valid FITS KEYWORD=VALUE types in an HDU. -}
 data Value
@@ -144,6 +142,28 @@ data Value
     deriving (Show, Eq)
 
 
+{-| A single 80 character header keyword line of the form: KEYWORD = VALUE / comment
+    KEYWORD=VALUE
+-}
+data KeywordRecord = KeywordRecord
+  { _keyword :: Text
+  , _value :: Value
+  , _comment :: Maybe Text
+  }
+  deriving (Show, Eq)
+$(makeLenses ''KeywordRecord)
+
+{-| Headers contain lines that are any of the following
+
+ > KEYWORD = VALUE / inline comment
+ > COMMENT full line comment
+ > (blank)
+-}
+data HeaderRecord
+    = Keyword KeywordRecord
+    | Comment Text
+    | BlankLine
+    deriving (Show, Eq)
 {-| 'Axes' represents the combination of NAXIS + NAXISn. The spec supports up to 999 axes -}
 type Axes = [Int]
 
@@ -283,35 +303,52 @@ pixDimsByRow = reverse . pixDimsByCol
     metadata, but also specifying how to make sense of the binary payload
     that starts 2,880 bytes after the start of the 'HeaderData'.
 -}
-newtype Header = Header { _keywords :: Map Keyword Value }
-    deriving (Eq)
+newtype Header = Header { _records :: [HeaderRecord] }
+    deriving (Eq, Semigroup, Monoid)
 $(makeLenses ''Header)
+
+
+-- | Return all 'KeywordRecord's from the header, filtering out full-line comments and blanks
+keywords :: SimpleGetter Header [KeywordRecord]
+keywords = to getKeywords
+
+
+-- | Return all 'KeywordRecord's from the header, filtering out full-line comments and blanks
+getKeywords :: Header -> [KeywordRecord]
+getKeywords h = mapMaybe toKeyword $ h ^. records
+  where
+    toKeyword (Keyword k) = Just k
+    toKeyword _ = Nothing
+
 
 instance Show Header where
   show h =
-    let kvs = Map.toList (h ^. keywords) :: [(Keyword, Value)]
-    in T.unpack $ T.intercalate "\n" $ fmap line kvs
+    T.unpack $ T.intercalate "\n" $ fmap line $ h ^. records
     where
-      --
-      -- init :: [Text]
-      -- init = map T.pack
-      --   [ "BITPIX =" <> show h.size.bitpix
-      --   , "NAXES  =" <> show h.size.naxes
-      --   ]
-
-      line :: (Keyword, Value) -> Text
-      line (Keyword k, v) =
+      line :: HeaderRecord -> Text
+      line (Keyword (KeywordRecord k v mc)) =
         T.justifyLeft 8 ' ' k
         <> "="
         <> T.justifyLeft (hduRecordLength - 10) ' ' (T.pack $ val v)
+        <> inlineComment mc
+      line (Comment c) = c
+      line BlankLine = " "
+
+      inlineComment Nothing = ""
+      inlineComment (Just c) = " / " <> c
 
       val (Integer n) = show n
       val (Float f) = show f
       val (Logic T) = "              T"
       val (String t) = T.unpack t
 
-lookup :: Keyword -> Header -> Maybe Value
-lookup k h = Map.lookup k (h ^. keywords)
+lookup :: Text -> Header -> Maybe Value
+lookup k h = do
+  kr <- L.find (isKeyword k) (h ^. keywords)
+  pure $ kr ^. value
+
+isKeyword :: Text -> KeywordRecord -> Bool
+isKeyword k kr = kr ^. keyword == k
 
 
 data Extension
@@ -354,9 +391,6 @@ data Dimensions = Dimensions
     } deriving (Show, Eq)
 $(makeLenses ''Dimensions)
 
-newtype Comment = Comment Text
-    deriving (Show, Eq, Ord, IsString)
-
 
 {-| The 'HeaderDataUnit' is the full HDU. Both the header information is
     encoded alongside the data payload.
@@ -373,7 +407,7 @@ $(makeLenses ''HeaderDataUnit)
 instance Show HeaderDataUnit where
     show hdu = intercalate "\n" 
       [ "HeaderDataUnit:"
-      , "  headers = " <> show (Map.size (hdu ^. header . keywords))
+      , "  headers = " <> show (length (hdu ^. header . keywords))
       , "  extension = " <> show (hdu ^. extension)
       , "  mainData = " <> show (BS.length (hdu ^. mainData)) <> " Bytes"
       ]
