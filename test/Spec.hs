@@ -141,8 +141,11 @@ keywordValueLines = describe "parse keyword=value" $ do
         res @?= ("KEY", Float ( -44.88 ))
 
     it "should parse a logical constant" $ do
-        res <- parse parseKeywordValue "KEY=     T " 
-        res @?= ("KEY", Logic T)
+        res <- parse parseKeywordValue "KEYT=     T "
+        res @?= ("KEYT", Logic T)
+
+        res <- parse parseKeywordValue "KEYF=     F "
+        res @?= ("KEYF", Logic F)
 
     it "should ignore comments" $ do
         res <- parse parseKeywordValue "SIMPLE  =                    T / conforms to FITS standard" 

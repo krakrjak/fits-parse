@@ -202,8 +202,7 @@ parseFloat = MBL.signed M.space MBL.float
 
 parseLogic :: Parser LogicalConstant
 parseLogic = do
-    M.string' "T"
-    return T
+    T <$ M.string' "T" <|> F <$ M.string' "F"
 
 parseStringContinue :: Parser Text
 parseStringContinue = do
