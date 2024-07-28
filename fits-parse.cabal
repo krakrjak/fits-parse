@@ -16,7 +16,6 @@ extra-source-files:
     README.md
     stack.yaml
     stack.yaml.lock
-    package.yaml
     docs/Makefile
     docs/make.bat
     docs/conf.py
