@@ -1,11 +1,6 @@
 cabal-version: 1.12
-
--- This file has been generated from package.yaml by hpack version 0.36.0.
---
--- see: https://github.com/sol/hpack
-
 name:           fits-parse
-version:        0.3.6
+version:        0.4.0
 synopsis:       Parse FITS files
 description:    Parse and manipulate FITS data natively in Haskell
 category:       Science
