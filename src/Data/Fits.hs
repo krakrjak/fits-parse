@@ -339,7 +339,7 @@ instance Show Header where
 
       val (Integer n) = show n
       val (Float f) = show f
-      val (Logic T) = "              T"
+      val (Logic l) = "              " ++ show l
       val (String t) = T.unpack t
 
 lookup :: Text -> Header -> Maybe Value
