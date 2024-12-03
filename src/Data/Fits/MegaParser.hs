@@ -197,7 +197,7 @@ parseValue =
 parseInt :: Num a => Parser a
 parseInt = MBL.signed M.space MBL.decimal
 
-parseFloat :: Parser Float
+parseFloat :: Parser Double
 parseFloat = MBL.signed M.space MBL.float
 
 parseLogic :: Parser LogicalConstant
