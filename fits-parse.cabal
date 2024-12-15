@@ -1,6 +1,6 @@
 cabal-version: 1.12
 name:           fits-parse
-version:        0.4.2
+version:        0.5.0
 synopsis:       Parse FITS files
 description:    Parse and manipulate FITS data natively in Haskell
 category:       Science
