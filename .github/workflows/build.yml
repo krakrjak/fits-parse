@@ -5,6 +5,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        ghc: ['9.8.4']
         os: [ubuntu-latest, macOS-latest, windows-latest]
     name: Haskell GHC ${{ matrix.ghc }} ${{ matrix.os }}
     steps:
@@ -12,6 +13,7 @@ jobs:
       - name: Setup Haskell
         uses: haskell-actions/setup@v2
         with:
+          ghc-version: ${{ matrix.ghc }}
           enable-stack: true
           stack-no-global: true
           stack-setup-ghc: true
