@@ -8,7 +8,7 @@ homepage:       https://github.com/krakrjak/fits-parse#readme
 author:         Zac Slade
 maintainer:     Zac Slade <krakrjak@gmail.com>,
                 Sean Hess
-copyright:      Copyright (c) 2023 Zac Slade
+copyright:      Copyright (c) 2024 Zac Slade
 license:        BSD2
 license-file:   LICENSE
 build-type:     Simple
